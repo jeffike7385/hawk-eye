@@ -47,17 +47,24 @@ def test_smb_is_available_failure(mock_smb):
     assert transport.is_available() is False
 
 
+def _make_dir_entry(name, is_dir=False, is_file=True, is_symlink=False, size=1024):
+    entry = MagicMock()
+    entry.name = name
+    entry.is_dir.return_value = is_dir
+    entry.is_file.return_value = is_file
+    entry.is_symlink.return_value = is_symlink
+    stat_result = MagicMock()
+    stat_result.st_size = size
+    entry.stat.return_value = stat_result
+    return entry
+
+
 @patch("hawk_scan.remote.smb_transport.smbclient")
 def test_smb_enumerate(mock_smb):
-    mock_smb.walk.return_value = [
-        ("\\\\WS-01\\C$\\Users\\jsmith", ["Documents"], ["resume.docx"]),
-        ("\\\\WS-01\\C$\\Users\\jsmith\\Documents", [], ["notes.txt"]),
+    mock_smb.scandir.return_value = [
+        _make_dir_entry("resume.docx"),
+        _make_dir_entry("notes.txt"),
     ]
-    def mock_stat(path, **kwargs):
-        m = MagicMock()
-        m.st_size = 1024
-        return m
-    mock_smb.stat.side_effect = mock_stat
 
     creds = Credentials(username="DOMAIN\\admin", password="pass")
     transport = SmbTransport(target_host="WS-01", credentials=creds, timeout=30)
@@ -70,14 +77,10 @@ def test_smb_enumerate(mock_smb):
 
 @patch("hawk_scan.remote.smb_transport.smbclient")
 def test_smb_enumerate_excludes_patterns(mock_smb):
-    mock_smb.walk.return_value = [
-        ("\\\\WS-01\\C$\\Users\\jsmith", [], ["resume.docx", "debug.log"]),
+    mock_smb.scandir.return_value = [
+        _make_dir_entry("resume.docx"),
+        _make_dir_entry("debug.log"),
     ]
-    def mock_stat(path, **kwargs):
-        m = MagicMock()
-        m.st_size = 1024
-        return m
-    mock_smb.stat.side_effect = mock_stat
 
     creds = Credentials(username="DOMAIN\\admin", password="pass")
     transport = SmbTransport(target_host="WS-01", credentials=creds, timeout=30)

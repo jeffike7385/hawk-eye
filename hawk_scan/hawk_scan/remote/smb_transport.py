@@ -1,4 +1,5 @@
 import os
+import stat
 import ntpath
 import fnmatch
 import smbclient
@@ -41,38 +42,49 @@ class SmbTransport(Transport):
         except Exception:
             return False
 
+    def _walk_safe(self, unc_path: str, exclude_patterns: list[str], results: list[FileMetadata]):
+        try:
+            entries = list(smbclient.scandir(unc_path))
+        except Exception:
+            return
+
+        dirs = []
+        for entry in entries:
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir():
+                    full = ntpath.join(unc_path, entry.name)
+                    if any(p in full for p in exclude_patterns if not p.startswith("*")):
+                        continue
+                    dirs.append(full)
+                elif entry.is_file():
+                    if any(fnmatch.fnmatch(entry.name, p) for p in exclude_patterns if p.startswith("*")):
+                        continue
+                    full_path = ntpath.join(unc_path, entry.name)
+                    _, ext = os.path.splitext(entry.name)
+                    try:
+                        info = entry.stat()
+                        size = info.st_size
+                    except Exception:
+                        size = 0
+                    results.append(FileMetadata(
+                        remote_path=full_path,
+                        size_bytes=size,
+                        extension=ext.lower(),
+                    ))
+            except Exception:
+                continue
+
+        for d in dirs:
+            self._walk_safe(d, exclude_patterns, results)
+
     def enumerate(self, paths: list[str], exclude_patterns: list[str]) -> list[FileMetadata]:
         self._ensure_session()
         results = []
         for path in paths:
             unc = self._unc(path)
-            try:
-                for dirpath, dirnames, filenames in smbclient.walk(unc):
-                    skip_dirs = []
-                    for d in dirnames:
-                        full = ntpath.join(dirpath, d)
-                        if any(p in full for p in exclude_patterns if not p.startswith("*")):
-                            skip_dirs.append(d)
-                    for d in skip_dirs:
-                        dirnames.remove(d)
-
-                    for filename in filenames:
-                        if any(fnmatch.fnmatch(filename, p) for p in exclude_patterns if p.startswith("*")):
-                            continue
-                        full_path = ntpath.join(dirpath, filename)
-                        _, ext = os.path.splitext(filename)
-                        try:
-                            stat = smbclient.stat(full_path)
-                            size = stat.st_size
-                        except Exception:
-                            size = 0
-                        results.append(FileMetadata(
-                            remote_path=full_path,
-                            size_bytes=size,
-                            extension=ext.lower(),
-                        ))
-            except Exception:
-                continue
+            self._walk_safe(unc, exclude_patterns, results)
         return results
 
     def retrieve(self, remote_path: str, local_dir: str) -> str | None:
