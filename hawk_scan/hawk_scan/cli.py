@@ -42,6 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    import warnings
+    warnings.filterwarnings("ignore", module="openpyxl")
+    warnings.filterwarnings("ignore", module="PyPDF2")
+
     parser = build_parser()
     args = parser.parse_args()
 
@@ -124,7 +128,11 @@ def main():
             task = progress.add_task("Scanning...", total=len(file_list))
 
             def on_progress(file_path):
-                progress.update(task, advance=1, description=f"Scanning {os.path.basename(file_path)}")
+                import ntpath
+                name = ntpath.basename(file_path)
+                if len(name) > 40:
+                    name = name[:37] + "..."
+                progress.update(task, advance=1, description=f"Scanning {name}")
 
             findings, skipped = orchestrator.scan(
                 file_list=file_list,
