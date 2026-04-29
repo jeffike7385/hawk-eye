@@ -1,0 +1,25 @@
+# Hawk Scan configuration
+# CLI flags override these values.
+
+default_paths:
+  - "C:\\Users"
+  - "D:\\"
+
+exclude_patterns:
+  - "AppData"
+  - "node_modules"
+  - ".git"
+  - "\\Windows"
+  - "\\Program Files"
+  - "\\Program Files (x86)"
+  - "$Recycle.Bin"
+
+report:
+  format: html          # html or json
+  output_dir: ".\\reports"
+  redact: true
+
+max_file_size_mb: 50
+timeout_seconds: 30
+
+# custom_fingerprints: ".\\custom_fingerprints.yml"
