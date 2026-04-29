@@ -33,5 +33,8 @@ dev = [
 [project.scripts]
 hawk_scan = "hawk_scan.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["hawk_scan*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
