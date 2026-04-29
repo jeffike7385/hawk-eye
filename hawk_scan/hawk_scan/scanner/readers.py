@@ -1,12 +1,4 @@
 import os
-import PyPDF2
-from docx import Document
-from openpyxl import load_workbook
-from pptx import Presentation
-import pytesseract
-from PIL import Image, ImageEnhance
-import numpy as np
-import cv2
 
 
 def read_text(file_path: str) -> str:
@@ -19,6 +11,7 @@ def read_text(file_path: str) -> str:
 def read_pdf(file_path: str) -> str:
     import warnings
     import logging
+    import PyPDF2
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
     content = ""
     with warnings.catch_warnings():
@@ -36,23 +29,29 @@ def read_pdf(file_path: str) -> str:
 
 
 def read_docx(file_path: str) -> str:
+    from docx import Document
     doc = Document(file_path)
     return "\n".join(p.text for p in doc.paragraphs)
 
 
 def read_xlsx(file_path: str) -> str:
-    wb = load_workbook(file_path, data_only=True)
-    parts = []
-    for sheet_name in wb.sheetnames:
-        sheet = wb[sheet_name]
-        for row in sheet.iter_rows():
-            for cell in row:
-                if cell.value is not None:
-                    parts.append(str(cell.value))
+    import warnings
+    from openpyxl import load_workbook
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wb = load_workbook(file_path, data_only=True)
+        parts = []
+        for sheet_name in wb.sheetnames:
+            sheet = wb[sheet_name]
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if cell.value is not None:
+                        parts.append(str(cell.value))
     return "\n".join(parts)
 
 
 def read_pptx(file_path: str) -> str:
+    from pptx import Presentation
     prs = Presentation(file_path)
     parts = []
     for slide in prs.slides:
@@ -65,22 +64,15 @@ def read_pptx(file_path: str) -> str:
     return "\n".join(parts)
 
 
-def _enhance_image(image: Image.Image) -> Image.Image:
-    grayscale = image.convert("L")
-    enhancer = ImageEnhance.Contrast(grayscale)
-    contrasted = enhancer.enhance(2.0)
-    thresholded = contrasted.point(lambda x: 0 if x < 100 else 255)
-    arr = np.array(thresholded)
-    denoised = cv2.fastNlMeansDenoising(arr, None, h=10,
-                                         templateWindowSize=7,
-                                         searchWindowSize=21)
-    return Image.fromarray(denoised)
-
-
 def read_image_ocr(file_path: str) -> str:
     import warnings
+    import numpy as np
+    import cv2
+    import pytesseract
+    from PIL import Image, ImageEnhance
+
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
+        warnings.simplefilter("ignore")
         image = Image.open(file_path)
         if image.mode in ("P", "PA"):
             image = image.convert("RGBA")
@@ -88,7 +80,15 @@ def read_image_ocr(file_path: str) -> str:
             bg = Image.new("RGB", image.size, (255, 255, 255))
             bg.paste(image, mask=image.split()[3])
             image = bg
-        enhanced = _enhance_image(image)
+        grayscale = image.convert("L")
+        enhancer = ImageEnhance.Contrast(grayscale)
+        contrasted = enhancer.enhance(2.0)
+        thresholded = contrasted.point(lambda x: 0 if x < 100 else 255)
+        arr = np.array(thresholded)
+        denoised = cv2.fastNlMeansDenoising(arr, None, h=10,
+                                             templateWindowSize=7,
+                                             searchWindowSize=21)
+        enhanced = Image.fromarray(denoised)
         return pytesseract.image_to_string(enhanced)
 
 
