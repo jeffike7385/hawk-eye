@@ -12,10 +12,12 @@ class ScanOrchestrator:
         self._max_bytes = max_file_size_mb * 1024 * 1024
         self._debug = debug
 
-    def run(self, paths: list[str], exclude_patterns: list[str], temp_dir: str, progress_callback=None) -> tuple[list[Finding], list[SkippedFile]]:
+    def enumerate(self, paths: list[str], exclude_patterns: list[str]) -> list[FileMetadata]:
+        return self._transport.enumerate(paths, exclude_patterns)
+
+    def scan(self, file_list: list[FileMetadata], temp_dir: str, progress_callback=None) -> tuple[list[Finding], list[SkippedFile]]:
         findings: list[Finding] = []
         skipped: list[SkippedFile] = []
-        file_list = self._transport.enumerate(paths, exclude_patterns)
         for meta in file_list:
             if progress_callback:
                 progress_callback(meta.remote_path)
@@ -50,3 +52,7 @@ class ScanOrchestrator:
                 except OSError:
                     pass
         return findings, skipped
+
+    def run(self, paths: list[str], exclude_patterns: list[str], temp_dir: str, progress_callback=None) -> tuple[list[Finding], list[SkippedFile]]:
+        file_list = self.enumerate(paths, exclude_patterns)
+        return self.scan(file_list, temp_dir, progress_callback)

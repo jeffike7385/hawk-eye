@@ -1,4 +1,5 @@
 import os
+import sys
 import stat
 import ntpath
 import fnmatch
@@ -9,21 +10,27 @@ from hawk_scan.scanner.readers import SCANNABLE_EXTENSIONS
 
 
 class SmbTransport(Transport):
-    def __init__(self, target_host: str, credentials: Credentials, timeout: int):
+    def __init__(self, target_host: str, credentials: Credentials, timeout: int, debug: bool = False):
         self._host = target_host
         self._creds = credentials
         self._timeout = timeout
+        self._debug = debug
         self._registered = False
 
     def _ensure_session(self):
         if self._registered:
             return
         if self._creds.username and self._creds.password:
+            if self._debug:
+                print(f"[DEBUG] Registering SMB session for {self._creds.username}@{self._host}", file=sys.stderr)
             smbclient.register_session(
                 self._host,
                 username=self._creds.username,
                 password=self._creds.password,
             )
+        else:
+            if self._debug:
+                print(f"[DEBUG] No explicit credentials, using implicit auth for {self._host}", file=sys.stderr)
         self._registered = True
 
     @property
@@ -46,7 +53,9 @@ class SmbTransport(Transport):
     def _walk_safe(self, unc_path: str, exclude_patterns: list[str], results: list[FileMetadata]):
         try:
             entries = list(smbclient.scandir(unc_path))
-        except Exception:
+        except Exception as e:
+            if self._debug:
+                print(f"[DEBUG] scandir failed on {unc_path}: {type(e).__name__}: {e}", file=sys.stderr)
             return
 
         dirs = []
@@ -87,7 +96,12 @@ class SmbTransport(Transport):
         results = []
         for path in paths:
             unc = self._unc(path)
+            if self._debug:
+                print(f"[DEBUG] Enumerating: {path} -> {unc}", file=sys.stderr)
+                print(f"[DEBUG] Exclude patterns: {exclude_patterns}", file=sys.stderr)
             self._walk_safe(unc, exclude_patterns, results)
+            if self._debug:
+                print(f"[DEBUG] Found {len(results)} files so far", file=sys.stderr)
         return results
 
     def retrieve(self, remote_path: str, local_dir: str) -> str | None:

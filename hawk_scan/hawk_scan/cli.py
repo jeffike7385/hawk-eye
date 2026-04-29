@@ -76,7 +76,7 @@ def main():
     console.print(f"Target: [cyan]{args.target}[/cyan]")
 
     try:
-        transport = negotiate_transport(args.target, creds, timeout, args.transport)
+        transport = negotiate_transport(args.target, creds, timeout, args.transport, debug=args.debug)
     except ConnectionError as e:
         console.print(f"[bold red]{e}[/bold red]")
         sys.exit(1)
@@ -101,19 +101,25 @@ def main():
     start_time = time.time()
     start_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    exclude_patterns = config.get("exclude_patterns", [])
+
+    with console.status("[bold cyan]Enumerating remote files...[/bold cyan]") as status:
+        file_list = orchestrator.enumerate(scan_paths, exclude_patterns)
+    console.print(f"Found [bold]{len(file_list)}[/bold] scannable files")
+
     temp_dir = tempfile.mkdtemp(prefix="hawk_scan_")
     try:
         with Progress(
             SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-            BarColumn(), TextColumn("{task.completed} files"), console=console,
+            BarColumn(), TextColumn("{task.completed}/{task.total} files"), console=console,
         ) as progress:
-            task = progress.add_task("Scanning...", total=None)
+            task = progress.add_task("Scanning...", total=len(file_list))
 
             def on_progress(file_path):
                 progress.update(task, advance=1, description=f"Scanning {os.path.basename(file_path)}")
 
-            findings, skipped = orchestrator.run(
-                paths=scan_paths, exclude_patterns=config.get("exclude_patterns", []),
+            findings, skipped = orchestrator.scan(
+                file_list=file_list,
                 temp_dir=temp_dir, progress_callback=on_progress,
             )
     finally:
