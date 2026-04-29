@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hawk Scan Report - {{ report.result.target_host }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #333; padding: 20px; margin: 0; }
+  h1 { color: #111; font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { color: #222; font-size: 1.1rem; margin-top: 32px; margin-bottom: 8px; border-bottom: 2px solid #ddd; padding-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th { background: #f0f0f0; text-align: left; padding: 8px 12px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: #555; border-bottom: 2px solid #ddd; }
+  td { padding: 8px 12px; font-size: 0.88rem; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+  .meta-table td:first-child { font-weight: 600; color: #444; width: 200px; }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px 20px; min-width: 130px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 4px; }
+  .card .value { font-size: 1.6rem; font-weight: 700; color: #111; }
+  .sev-high { color: #dc2626; font-weight: 600; }
+  .sev-medium { color: #f59e0b; font-weight: 600; }
+  .sev-low { color: #3b82f6; }
+  .sev-info { color: #6b7280; }
+  .no-findings { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 24px; text-align: center; color: #888; font-size: 0.95rem; margin-bottom: 24px; }
+  .sample { font-family: monospace; font-size: 0.8rem; color: #555; max-width: 260px; word-break: break-all; }
+  footer { margin-top: 40px; text-align: center; font-size: 0.78rem; color: #aaa; border-top: 1px solid #e0e0e0; padding-top: 16px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge-high { background: #fee2e2; color: #dc2626; }
+  .badge-medium { background: #fef3c7; color: #d97706; }
+  .badge-low { background: #dbeafe; color: #2563eb; }
+  .badge-default { background: #f3f4f6; color: #6b7280; }
+</style>
+</head>
+<body>
+<h1>Hawk Scan Report</h1>
+<div class="subtitle">Target: <strong>{{ report.result.target_host }}</strong></div>
+
+<h2>Scan Metadata</h2>
+<table class="meta-table">
+  <tbody>
+    <tr><td>Target Host</td><td>{{ report.result.target_host }}</td></tr>
+    <tr><td>Transport Method</td><td>{{ report.result.transport_method }}</td></tr>
+    <tr><td>Scan User</td><td>{{ report.result.scan_user }}</td></tr>
+    <tr><td>Start Time</td><td>{{ report.result.start_time }}</td></tr>
+    <tr><td>End Time</td><td>{{ report.result.end_time }}</td></tr>
+    <tr><td>Duration</td><td>{{ report.result.duration_seconds }}s</td></tr>
+    <tr><td>Files Scanned</td><td>{{ report.result.total_files_scanned }}</td></tr>
+    <tr><td>Files Skipped</td><td>{{ report.result.total_files_skipped }}</td></tr>
+  </tbody>
+</table>
+
+<h2>Summary</h2>
+<div class="cards">
+  <div class="card">
+    <div class="label">Total Findings</div>
+    <div class="value">{{ sorted_findings | length }}</div>
+  </div>
+  <div class="card">
+    <div class="label">High</div>
+    <div class="value sev-high">{{ severity_summary.get('high', 0) }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Medium</div>
+    <div class="value sev-medium">{{ severity_summary.get('medium', 0) }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Low</div>
+    <div class="value sev-low">{{ severity_summary.get('low', 0) }}</div>
+  </div>
+  {% for cat, count in category_summary.items() %}
+  <div class="card">
+    <div class="label">{{ cat }}</div>
+    <div class="value">{{ count }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Findings</h2>
+{% if sorted_findings %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Severity</th>
+      <th>File Path</th>
+      <th>Pattern</th>
+      <th>Category</th>
+      <th>Matches</th>
+      <th>Sample</th>
+      <th>Owner</th>
+      <th>Modified</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in sorted_findings %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>
+        <span class="badge badge-{{ f.severity }}">{{ f.severity }}</span>
+      </td>
+      <td>{{ f.file_path }}</td>
+      <td>{{ f.pattern_name }}</td>
+      <td>{{ f.category }}</td>
+      <td>{{ f.match_count }}</td>
+      <td><span class="sample">{{ f.sample_text }}</span></td>
+      <td>{{ f.file_owner or '' }}</td>
+      <td>{{ f.file_modified or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="no-findings">No findings — 0 matches detected.</div>
+{% endif %}
+
+{% if report.result.skipped_files %}
+<h2>Skipped Files</h2>
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>File Path</th>
+      <th>Reason</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in report.result.skipped_files %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ s.file_path }}</td>
+      <td>{{ s.reason }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<footer>Generated by Hawk Scan v{{ version }}</footer>
+</body>
+</html>
