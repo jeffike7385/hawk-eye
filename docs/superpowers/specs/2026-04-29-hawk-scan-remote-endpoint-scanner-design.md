@@ -1,363 +1,289 @@
-# Hawk Scan: Remote Endpoint PII & Secrets Scanner
+# Hawk Scan: Remote Endpoint PII Scanner
 
 **Date:** 2026-04-29
-**Status:** Approved
+**Status:** Implemented
 **Approach:** New project extracting hawk-eye's scanning core (Approach 2)
 
 ## Overview
 
-Hawk Scan is a standalone Windows CLI tool for enterprise administrators to remotely scan domain-joined Windows endpoints for PII, secrets, and classified data before devices are taken abroad by staff. It runs from an administrative workstation, requires no software installation on the target device, and produces a self-contained report.
+Hawk Scan is a standalone Windows CLI tool for enterprise administrators to remotely scan domain-joined Windows endpoints for PII and classified documents before devices are taken abroad by staff. It runs from an administrative workstation over SMB or WinRM, requires no software installation on the target device, and produces a self-contained interactive HTML report with remediation prioritization.
 
 ### Key Constraints
 
 - Single target machine per scan (no batch orchestration)
 - No dependencies installed on the target endpoint
-- No dependencies required on the admin workstation (standalone .exe)
-- Domain-joined Windows environment (Azure/M365/Power Platform/Dynamics stack)
+- No dependencies required on the admin workstation (standalone .exe via PyInstaller)
+- Domain-joined Windows environment
 - Report output only (no ticketing, SIEM, or notification integrations)
+- PII and document classification focus — no secrets/credentials scanning
 
-## 1. Project Structure & Component Architecture
+## 1. Project Structure
 
 ```
 hawk_scan/
-├── cli.py              # CLI entry point, arg parsing
-├── config.py           # YAML config loading (connection + fingerprints)
-├── remote/
-│   ├── transport.py    # Abstract interface for remote file access
-│   ├── winrm.py        # WinRM implementation (primary)
-│   └── smb.py          # SMB admin share implementation (fallback)
-├── scanner/
-│   ├── engine.py       # Regex fingerprint matching (extracted from hawk-eye)
-│   ├── readers.py      # File content extraction: PDF, Office, OCR, plain text
-│   └── orchestrator.py # Coordinates enumeration -> download -> scan -> results
-├── report/
-│   └── generator.py    # HTML and JSON report generation
+├── pyproject.toml
+├── hawk_scan/
+│   ├── __init__.py             # __version__ = "0.1.0"
+│   ├── cli.py                  # argparse CLI, main() entry point, progress display
+│   ├── config.py               # YAML config + fingerprint loading/merging
+│   ├── models.py               # Dataclasses: FileMetadata, Finding, SkippedFile, ScanResult, ScanReport
+│   ├── remote/
+│   │   ├── transport.py        # Transport ABC, Credentials, negotiate_transport()
+│   │   ├── winrm_transport.py  # WinRM via pywinrm (PowerShell remoting)
+│   │   └── smb_transport.py    # SMB via smbprotocol (admin shares)
+│   ├── scanner/
+│   │   ├── engine.py           # ScanEngine: regex matching, thresholds, co-occurrence, redaction
+│   │   ├── readers.py          # File content extractors by extension
+│   │   └── orchestrator.py     # Coordinates enumerate → retrieve → scan → collect
+│   └── report/
+│       ├── generator.py        # HTML/JSON report generation with directory prioritization
+│       └── template.html       # Self-contained Jinja2 template with JS sorting/filtering
 ├── fingerprints/
-│   └── default.yml     # US PII + Azure/M365/Dynamics secrets
-└── config.yml.sample   # Sample config file
+│   └── default.yml             # PII patterns + document classification markings
+├── config.yml.sample
+├── hawk_scan.spec              # PyInstaller build spec
+└── tests/                      # 94 tests across 9 test files
 ```
 
-### Separation of Concerns
+### Layer Separation
 
-- **remote/**: How to reach files on the target. Transport abstraction lets WinRM and SMB be swapped or combined without touching scanning logic.
-- **scanner/**: What to do with file content. The regex engine and file readers are pure functions with no knowledge of where files came from.
-- **report/**: What to produce. Takes structured results, generates output.
-- **cli.py**: Ties it all together.
-
-The transport abstraction is the critical design boundary. `orchestrator.py` asks the transport layer "enumerate files at these paths" and "give me this file's contents" -- it does not care whether that happens via WinRM or SMB.
+- **remote/** — How to reach files. Transport abstraction means the scanner has no knowledge of WinRM vs SMB.
+- **scanner/** — What to do with file content. Pure functions, no network awareness.
+- **report/** — What to produce. Takes structured results, generates output.
+- **cli.py** — Ties layers together with progress display and credential handling.
 
 ## 2. Remote Access Layer
 
-### Transport Interface
+### Transport Interface (transport.py)
 
-Both WinRM and SMB implement the same contract:
+Both WinRM and SMB implement the `Transport` ABC:
 
-- `enumerate(target_host, paths, exclude_patterns)` -- yields remote file metadata (path, size, extension)
-- `retrieve(target_host, remote_path, local_temp_path)` -- downloads a single file to a local temp directory for scanning
-- `is_available(target_host)` -- connectivity/auth check
+- `is_available()` — connectivity/auth check
+- `enumerate(paths, exclude_patterns, progress_callback)` — yields `FileMetadata` for scannable files
+- `retrieve(remote_path, local_dir)` — downloads a file to local temp, returns local path
+- `detect_volumes()` — discovers fixed drives on the target
 
-### WinRM (Primary)
+`negotiate_transport()` auto-selects: tries WinRM first, falls back to SMB. `--transport smb|winrm` forces a specific transport.
 
-- Uses `pywinrm` library to execute PowerShell commands on the target.
-- Enumeration runs `Get-ChildItem -Recurse` remotely, returning file paths and metadata. Only the file listing travels over the network, not file contents.
-- Retrieval: small files are read via PowerShell and streamed back as base64. Larger files fall back to SMB to avoid WinRM's message size limits (~150KB).
-- Authentication: Kerberos (current user context) or NTLM (explicit credentials).
+`Credentials` dataclass supports current-user Kerberos auth or explicit NTLM credentials.
 
-### SMB (Fallback)
+### SMB Transport (smb_transport.py)
 
-- Uses `smbprotocol` / `smbclient` library to access admin shares (`\\target\C$\...`).
-- Enumeration walks the remote share directory tree. Functional but slower than WinRM since every directory listing is a network round-trip.
-- Retrieval: copies files directly from the share to local temp.
-- Authentication: same credential options as WinRM.
+- Uses `smbprotocol` / `smbclient` for admin share access (`\\host\C$\...`)
+- Custom `_walk_safe()` using `smbclient.scandir()` instead of `smbclient.walk()` to handle Windows symlinks/junctions (e.g., `All Users → C:\ProgramData`) that crash the standard walk
+- Filters by `SCANNABLE_EXTENSIONS` during enumeration — only collects files the readers can process
+- Uses `ntpath` for UNC path manipulation (cross-platform: works from macOS or Linux)
+- Deferred session registration — `register_session()` called on first use, not in constructor
+- Progress callback fires on each file found during enumeration
 
-### Auto-Negotiation Flow
+### WinRM Transport (winrm_transport.py)
 
-1. Try WinRM `is_available()` on the target.
-2. If WinRM succeeds: use WinRM for enumeration, WinRM+SMB hybrid for retrieval (small files via WinRM, large files via SMB).
-3. If WinRM fails: fall back to pure SMB for both enumeration and retrieval.
-4. Report which transport was used in the output.
-
-### Temp File Handling
-
-Files are downloaded to a temp directory on the admin workstation, scanned, then deleted. The temp directory is cleaned up at the end of the scan (or on failure via `finally` block). No target-device files persist on the admin workstation after the scan completes.
+- Uses `pywinrm` to execute PowerShell on the target
+- Enumeration: `Get-ChildItem -Recurse -File` with server-side exclude filtering via `Where-Object`
+- Retrieval: `[System.IO.File]::ReadAllBytes()` → base64 decode
+- Volume detection: `Get-Volume` for fixed drives
+- Auth: Kerberos (current user) or NTLM (explicit credentials)
 
 ## 3. Scanning Engine
 
-Extracted from hawk-eye's `system.py`, cleaned up and focused.
+### ScanEngine (engine.py)
 
-### Regex Matching (engine.py)
+Compiles fingerprint regexes once at init, runs them against text content per file.
 
-- Lifted from hawk-eye's `match_strings()`: loads YAML fingerprint patterns, compiles regexes, runs them against text content.
-- Returns structured results: pattern name, matched values, match count, sample text.
-- Supports redaction mode (mask middle portion of matched values) controlled by config.
-- Patterns are compiled once at startup and reused across all files (hawk-eye recompiles per call).
+**Threshold-based detection (`min_matches`):**
+Patterns specify a minimum match count per file. A single SSN in a file is likely a false positive; 3+ SSNs is a list. This dramatically reduces noise:
+
+| Pattern | min_matches | Rationale |
+|---------|-------------|-----------|
+| SSN | 3 | Bulk exposure, not a stray number |
+| Credit Card | 10 | A database extract or list |
+| Driver License | 10 | A list, not an isolated match |
+| Email | 10 | A contact list, not a signature |
+| US Passport | 2 | Multiple passports = a list |
+| ITIN | 2 | Multiple ITINs = a list |
+| EIN | 3 | Multiple EINs = a list |
+
+**Co-occurrence rules (`require_all`):**
+Compound patterns that only fire when ALL sub-patterns match in the same file. Used for bank account detection: a routing number alone isn't actionable, but routing number + account number together in one file is a finding.
+
+**Context keywords:**
+Optional per-pattern keyword list that boosts confidence. SSN matches near "social security" or "tax id" get `confidence: high`; bare numeric matches without context get `confidence: low`.
+
+**Redaction:**
+When `--redact` is enabled, matched values have their middle portion masked with `*` characters. Sample text is also redacted.
 
 ### File Readers (readers.py)
 
-Each reader is a standalone function: takes a file path, returns extracted text.
+All imports are lazy to avoid dependency conflicts at startup.
 
-- **Plain text**: read as UTF-8 with fallback to latin-1.
-- **PDF**: extract text via PyPDF2 page-by-page.
-- **Word (.docx)**: extract paragraph text via python-docx.
-- **Excel (.xlsx)**: extract cell values via openpyxl.
-- **PowerPoint (.pptx)**: extract text from slides via python-pptx (hawk-eye had an unimplemented stub).
-- **Images (.png, .jpg, .gif, .bmp)**: OCR via Tesseract/pytesseract with image enhancement (grayscale, contrast, thresholding, denoising).
+| Extension | Reader | Library |
+|-----------|--------|---------|
+| .txt, .csv | `read_text()` | stdlib (UTF-8 with fallback) |
+| .pdf | `read_pdf()` | PyPDF2 |
+| .docx | `read_docx()` | python-docx |
+| .xlsx | `read_xlsx()` | openpyxl |
+| .pptx | `read_pptx()` | python-pptx |
+| .png, .jpg, .jpeg, .gif, .bmp | `read_image_ocr()` | pytesseract + Pillow + OpenCV |
 
-### File Routing
+Only these extensions are enumerated. Scripts (.ps1, .py, .bat), config files (.json, .xml, .yml), and binaries are excluded at the enumeration level — they never cross the network.
 
-`scan_file()` dispatches by extension to the appropriate reader, then passes extracted text to the regex engine. No archive or video branches.
+OCR pipeline: grayscale → contrast enhancement → thresholding → OpenCV denoising → Tesseract. Handles palette/transparent images by compositing onto white background.
 
-### OCR Bundling
+### Orchestrator (orchestrator.py)
 
-Tesseract binaries (~30MB) are included as data files in the PyInstaller spec. The `pytesseract` library is pointed to the bundled binary path at runtime.
+Two-phase execution:
 
-### What Is Dropped from Hawk-Eye
+1. **Enumerate** — calls `transport.enumerate()`, returns full file list with progress callback
+2. **Scan** — iterates file list: check size limit → retrieve to temp → read content → run engine → collect `Finding`/`SkippedFile` → cleanup temp file in `finally` block
 
-- Archive extraction (zip/rar/tar)
-- Video frame OCR (cv2 video capture)
-- ProcessPoolExecutor / ThreadPoolExecutor for video
-- Notification logic (Slack, Jira)
-- All non-filesystem command modules (S3, MySQL, PostgreSQL, MongoDB, CouchDB, Redis, Firebase, GCS, Google Drive, Slack, text)
+The CLI displays separate progress indicators for each phase.
 
 ## 4. Fingerprint Patterns
 
-### US PII Patterns (New)
+PII-focused with threshold-based detection. No secrets/credentials scanning.
 
-- Social Security Number (XXX-XX-XXXX and variants with/without dashes)
-- US Passport Number
-- Driver's License (state-format-aware where feasible, generic fallback)
-- ITIN (Individual Taxpayer Identification Number)
-- EIN (Employer Identification Number)
-- US Phone Numbers (domestic formats)
-- US Bank Account / Routing Numbers
-- Credit/Debit Card Numbers (Visa, Mastercard, Amex, Discover; Luhn-validated in post-processing where possible)
-- Date of Birth patterns near PII context keywords
-- Email Addresses (kept from hawk-eye)
+### PII Patterns
 
-### Secrets Patterns (Azure/M365/Power Platform/Dynamics)
+- **SSN** (with and without dashes) — min 3 matches, context keywords
+- **Credit Card Number** (Visa, MC, Amex, Discover) — min 10 matches
+- **Driver License** — min 10 matches, context keywords
+- **Bank Account + Routing Number** — co-occurrence rule (both required in same file)
+- **US Passport Number** — min 2 matches, context keywords
+- **ITIN** — min 2 matches, context keywords
+- **EIN** — min 3 matches, context keywords
+- **Email** — min 10 matches (bulk exposure only)
 
-- Azure AD / Entra ID Client Secrets
-- Azure Storage Account Keys
-- Azure SAS Tokens (Shared Access Signatures)
-- Azure Service Bus / Event Hub connection strings
-- Microsoft Graph API tokens
-- M365 / SharePoint app credentials
-- Azure DevOps Personal Access Tokens
-- Azure SQL connection strings with embedded credentials
-- Power Platform: Dataverse/CDS connection strings, Power Automate flow connection credentials, environment URL patterns with embedded auth
-- Dynamics CRM: Dynamics 365 connection strings with embedded credentials, CRM Organization Service URLs with auth tokens
-- Slack tokens (access, user, webhook)
-- Generic Basic Auth credentials in URLs
-- Private key file markers / PFX certificate references
-- Generic password patterns (`password=`, `passwd:`, `connectionstring=` near values)
+### Document Classification Markings
 
-### Custom Patterns (Org-Specific)
+- **Confidential / Strictly Confidential** — severity high
+- **Secret** — severity high, with context keywords to reduce false positives
+- **Restricted** — severity medium, with context keywords
+- **Internal Use Only** — severity medium
 
-Loaded from a separate `custom_fingerprints.yml` file specified via `--custom-fingerprints` flag. Same YAML format. Merged with defaults at runtime; custom patterns can override defaults by using the same pattern name.
+### Custom Patterns
 
-Example:
-```yaml
-Member ID: "\\bMID-\\d{8}\\b"
-Classification - Confidential: "(?i)\\b(CONFIDENTIAL|STRICTLY CONFIDENTIAL)\\b"
-Classification - Internal Use: "(?i)\\bINTERNAL USE(\\s+ONLY)?\\b"
-Classification - Restricted: "(?i)\\bRESTRICTED\\b"
-```
+Loaded via `--custom-fingerprints path.yml`. Same YAML format with `pattern`, `severity`, `category`, optional `min_matches`, `context_keywords`, or `require_all`. Merged with defaults; custom patterns override defaults by name.
 
-### False Positive Management
-
-Each pattern can optionally specify `context_keywords` -- a list of nearby words that increase confidence. For example, SSN matches near "SSN", "social security", "tax" are flagged at higher confidence, while bare 9-digit sequences in isolation are reported at lower confidence. This is a lightweight second-pass filter per pattern in the YAML, not a full NLP pipeline.
-
-## 5. CLI Interface & Configuration
-
-### CLI Usage
+## 5. CLI Interface
 
 ```
-hawk_scan.exe <target_hostname> [options]
+hawk_scan <target_hostname> [options]
 
-# Typical usage - scan with defaults (user profiles + common locations)
-hawk_scan.exe WORKSTATION-01
+Required:
+  target                    Target hostname or IP address
 
-# Specify custom paths
-hawk_scan.exe WORKSTATION-01 --paths "C:\Users\jsmith" "D:\Projects"
-
-# Use alternate credentials
-hawk_scan.exe WORKSTATION-01 --username DOMAIN\admin --password (prompts securely)
-
-# Control output
-hawk_scan.exe WORKSTATION-01 --report-format html --output .\reports\
-hawk_scan.exe WORKSTATION-01 --report-format json --output .\reports\
-
-# Use custom fingerprints
-hawk_scan.exe WORKSTATION-01 --custom-fingerprints .\custom_fingerprints.yml
-
-# Force a specific transport
-hawk_scan.exe WORKSTATION-01 --transport smb
-
-# Other flags
-hawk_scan.exe WORKSTATION-01 --redact
-hawk_scan.exe WORKSTATION-01 --debug
-hawk_scan.exe WORKSTATION-01 --exclude "*.log" "AppData" "node_modules"
-hawk_scan.exe WORKSTATION-01 --max-file-size 100  # MB
+Common options:
+  --transport smb|winrm     Force transport (default: auto-negotiate)
+  --username DOMAIN\user    Explicit credentials (prompts for password)
+  --paths PATH [PATH ...]   Remote paths to scan (default: C:\Users + detected volumes)
+  --exclude PAT [PAT ...]   Additional exclude patterns
+  --report-format html|json Report format (default: html)
+  --output DIR              Output directory (default: current dir)
+  --redact                  Mask matched values in report
+  --custom-fingerprints F   Path to custom fingerprints YAML
+  --max-file-size MB        Skip files larger than this (default: 50)
+  --config FILE             Path to config.yml
+  --debug                   Verbose output with UNC paths and error details
 ```
 
-Target hostname is the only required argument. Everything else has sensible defaults.
+### Progress Display
 
-### Default Scan Paths
+1. **Enumeration phase**: spinner with live file counter ("Enumerating... 847 files found")
+2. **Scanning phase**: progress bar with file count and truncated filename ("Scanning report.docx ━━━━━━━━ 123/847 files")
+3. **Completion summary**: files scanned, skipped, findings, duration, report path
 
-When `--paths` is not specified:
-- `C:\Users` (all user profile directories)
-- Root of any additional local volumes detected (D:\, E:\, etc.) -- enumerated via WinRM `Get-Volume` or SMB share probing; only fixed/local drives, not mapped network drives or removable media
+### Default Configuration
 
-### Configuration File (Optional)
-
-For admins who run scans frequently with the same settings. CLI flags override config file values.
-
-```yaml
-# config.yml
-default_paths:
-  - "C:\\Users"
-  - "D:\\"
-exclude_patterns:
-  - "AppData"
-  - "node_modules"
-  - ".git"
-  - "\\Windows"
-  - "\\Program Files"
-report:
-  format: html
-  output_dir: ".\\reports"
-  redact: true
-custom_fingerprints: ".\\custom_fingerprints.yml"
-```
-
-### Password Handling
-
-If `--username` is provided without `--password`, the tool prompts securely (masked input). Passwords are never accepted as a bare CLI argument to avoid shell history exposure.
+- Scan paths: `C:\Users` + auto-detected additional volumes
+- Excluded: AppData, node_modules, .git, Windows, Program Files, $Recycle.Bin, ProgramData
+- Max file size: 50MB
+- Report format: HTML
+- All overridable via `config.yml` or CLI flags (CLI takes precedence)
 
 ## 6. Report Output
 
-### HTML Report (Default)
+### HTML Report
 
-A single self-contained `.html` file with all CSS inlined. No external dependencies; can be opened in any browser or emailed as-is.
+Self-contained single file with inlined CSS and JavaScript. No external dependencies.
 
-**Contents:**
-- **Header**: scan metadata -- target hostname, scan timestamp, transport method used (WinRM/SMB), admin username, scan duration.
-- **Executive summary**: total files scanned, total findings, breakdown by severity (High/Medium/Low), breakdown by category (PII vs. secrets vs. classification markings).
-- **Findings table**: one row per finding with columns for file path, pattern name, category, match count, sample matched values (redacted if enabled), file owner, file last-modified date. Sorted by severity then by file path.
-- **Skipped files section**: files that could not be scanned (locked, permission denied, corrupt, over size threshold) with the reason.
+**Interactive features:**
+- **Sortable columns** — click any column header to sort ascending/descending
+- **Search box** — free-text search across all finding fields
+- **Severity filter** — dropdown to show only High/Medium/Low
+- **Category filter** — dropdown to filter by PII vs classification
+- **Result counter** — shows "Showing X of Y" when filtered
 
-### Severity Assignment
+**Priority Directories section:**
+Directories ranked by risk score (High finding = 10pts, Medium = 3pts, Low = 1pt). Each directory shows:
+- Risk score
+- Breakdown of High/Medium/Low findings
+- Number of affected files
+- Visual severity bar
 
-Built-in mapping per pattern (declared in fingerprint YAML as a `severity` field):
+This tells the admin which directories need remediation before travel.
 
-- **High**: SSN, passport numbers, private keys, credentials/connection strings, credit card numbers
-- **Medium**: driver's license, bank account numbers, classification markings (Confidential, Restricted)
-- **Low**: email addresses, phone numbers, Internal Use markings, generic pattern matches
-
-Custom patterns can declare their own severity level.
+**Other sections:**
+- Scan metadata (target, transport, user, timing)
+- Summary cards (total findings, severity breakdown, category breakdown)
+- Findings table (severity, file path, pattern, category, match count, sample, owner, modified)
+- Skipped files table (path, reason)
 
 ### JSON Report
 
-Same data structure as the HTML report but as machine-readable JSON.
+Same data structure as HTML for programmatic consumption.
 
 ### File Naming
 
-`hawk_scan_<hostname>_<YYYYMMDD_HHMMSS>.html` (or `.json`), written to the output directory.
+`hawk_scan_<hostname>_<YYYYMMDD_HHMMSS>.html` (or `.json`)
 
-## 7. Packaging & Dependencies
+## 7. Packaging
 
-### Distribution Structure
+### PyInstaller Distribution
 
 ```
 hawk_scan/
 ├── hawk_scan.exe
 ├── tesseract/
 │   ├── tesseract.exe
-│   └── tessdata/
-│       └── eng.traineddata
-├── fingerprints/
-│   └── default.yml
+│   └── tessdata/eng.traineddata
+├── fingerprints/default.yml
 └── config.yml.sample
 ```
 
-This folder can live on a network share, USB drive, or local directory. Admin runs `hawk_scan.exe` from wherever it sits.
+Build: `pyinstaller hawk_scan.spec` (must run on Windows for Windows exe).
 
-### Python Dependencies (Bundled into exe)
+### Dependencies (bundled)
 
-- `pywinrm` -- WinRM communication
-- `smbprotocol` -- SMB file access
-- `pytesseract` + bundled Tesseract binaries -- OCR
-- `Pillow`, `opencv-python-headless` -- image enhancement for OCR
-- `PyPDF2` -- PDF text extraction
-- `python-docx` -- Word document reading
-- `openpyxl` -- Excel spreadsheet reading
-- `python-pptx` -- PowerPoint reading
-- `pyyaml` -- config and fingerprint parsing
-- `rich` -- CLI output formatting and progress display
-- `jinja2` -- HTML report templating
+pywinrm, smbprotocol, pytesseract, Pillow, opencv-python-headless, numpy, PyPDF2, python-docx, openpyxl, python-pptx, pyyaml, rich, jinja2
 
-### Build Process
+## 8. Error Handling
 
-A PyInstaller `.spec` file defines the build:
-```bash
-pip install pyinstaller
-pyinstaller hawk_scan.spec
-```
+- **Connectivity failure**: clear error message, exit 1
+- **Transport fallback**: WinRM → SMB logged transparently
+- **File errors (non-fatal)**: locked/permission-denied/corrupt files logged to skipped section, scan continues
+- **Large files**: skipped with reason in report
+- **Windows symlinks/junctions**: detected via `is_symlink()`, skipped during SMB walk to avoid crashes
+- **Temp cleanup**: `finally` block ensures cleanup on success, failure, or Ctrl+C
+- **Library warnings**: PIL, PyPDF2, openpyxl warnings suppressed
+- **OCR import failure**: graceful degradation if numpy/cv2 have version conflicts
 
-Produces `dist/hawk_scan/` ready for distribution. Target platform: Windows x64 only. Build must run on Windows.
+## 9. Cross-Platform Notes
 
-## 8. Error Handling & Edge Cases
+Developed and tested on macOS scanning Windows targets over SMB. Key cross-platform considerations:
 
-### Connectivity Failures
+- `ntpath` used for all UNC/Windows path manipulation (not `os.path`)
+- `smbclient.scandir()` used instead of `smbclient.walk()` to handle Windows reparse points
+- All heavy library imports are lazy to avoid environment-specific conflicts at startup
+- Final packaging targets Windows x64 only (PyInstaller)
 
-- If both WinRM and SMB fail: exit immediately with a clear message ("Cannot reach WORKSTATION-01 -- verify the machine is online, network accessible, and you have admin rights").
-- If WinRM fails but SMB succeeds: log the fallback and continue.
-- Network timeout configurable (default 30 seconds per connection attempt).
+## Lineage
 
-### File-Level Errors (Non-Fatal)
+Forked from [rohitcoder/hawk-eye](https://github.com/rohitcoder/hawk-eye). Original multi-source scanner code removed. Hawk Scan extracts and improves the scanning core (regex engine, file readers, OCR pipeline) while replacing everything else with purpose-built remote endpoint infrastructure.
 
-- **Locked files**: skip, log in skipped files section of report.
-- **Permission denied**: skip, log.
-- **Corrupt files** that crash a reader: catch per-file, log, continue scanning.
-- The scan never aborts because of a single bad file.
-
-### Large File Handling
-
-- Files over a configurable size threshold (default 50MB) are skipped.
-- `--max-file-size` flag overrides the threshold.
-- Reported in skipped files section.
-
-### Scan Progress
-
-- `rich` progress bar: files enumerated, files scanned, current file name.
-- On completion: summary with total files scanned, files skipped, findings count, elapsed time.
-
-### Temp File Cleanup
-
-- Downloaded files stored in a system temp directory under a unique scan-session folder.
-- Cleanup runs in a `finally` block -- temp files removed whether the scan succeeds, fails, or is interrupted with Ctrl+C.
-- If cleanup fails (file lock), warn the admin with the temp directory path for manual cleanup.
-
-## Relationship to Hawk-Eye
-
-This project extracts and reuses hawk-eye's proven scanning logic:
-
-| Reused from hawk-eye | Purpose |
-|---|---|
-| `match_strings()` regex engine | Core fingerprint matching |
-| `scan_file()` file-type routing | Dispatch by extension |
-| `read_pdf()` | PDF text extraction |
-| `read_office_document()` | Word/Excel reading |
-| `enhance_and_ocr()` pipeline | Image OCR with enhancement |
-| `RedactData()` | Value masking |
-| Fingerprint YAML format | Pattern definition structure |
-
-Everything else is purpose-built for the remote endpoint scanning use case.
-
-## Future Scope (Not in Initial Build)
+## Future Scope
 
 - GUI wrapper for less technical staff
 - Batch scanning (list of hostnames)
-- Integration with ticketing/SIEM systems
 - .pst / .ost Outlook data file scanning
-- Archive extraction (zip/rar)
+- Integration with ticketing/SIEM systems
+- WinRM enumeration performance (single remote command vs per-directory SMB round-trips)
