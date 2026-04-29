@@ -1,4 +1,5 @@
 import os
+import ntpath
 import fnmatch
 import smbclient
 from hawk_scan.models import FileMetadata
@@ -10,11 +11,18 @@ class SmbTransport(Transport):
         self._host = target_host
         self._creds = credentials
         self._timeout = timeout
-        if credentials.username and credentials.password:
-            smbclient.ClientConfig(
-                username=credentials.username,
-                password=credentials.password,
+        self._registered = False
+
+    def _ensure_session(self):
+        if self._registered:
+            return
+        if self._creds.username and self._creds.password:
+            smbclient.register_session(
+                self._host,
+                username=self._creds.username,
+                password=self._creds.password,
             )
+        self._registered = True
 
     @property
     def name(self) -> str:
@@ -22,17 +30,19 @@ class SmbTransport(Transport):
 
     def _unc(self, local_path: str) -> str:
         drive = local_path[0]
-        rest = local_path[2:]
+        rest = local_path[2:].replace("/", "\\")
         return f"\\\\{self._host}\\{drive}${rest}"
 
     def is_available(self) -> bool:
         try:
+            self._ensure_session()
             smbclient.listdir(f"\\\\{self._host}\\C$")
             return True
         except Exception:
             return False
 
     def enumerate(self, paths: list[str], exclude_patterns: list[str]) -> list[FileMetadata]:
+        self._ensure_session()
         results = []
         for path in paths:
             unc = self._unc(path)
@@ -40,7 +50,7 @@ class SmbTransport(Transport):
                 for dirpath, dirnames, filenames in smbclient.walk(unc):
                     skip_dirs = []
                     for d in dirnames:
-                        full = os.path.join(dirpath, d)
+                        full = ntpath.join(dirpath, d)
                         if any(p in full for p in exclude_patterns if not p.startswith("*")):
                             skip_dirs.append(d)
                     for d in skip_dirs:
@@ -49,7 +59,7 @@ class SmbTransport(Transport):
                     for filename in filenames:
                         if any(fnmatch.fnmatch(filename, p) for p in exclude_patterns if p.startswith("*")):
                             continue
-                        full_path = os.path.join(dirpath, filename)
+                        full_path = ntpath.join(dirpath, filename)
                         _, ext = os.path.splitext(filename)
                         try:
                             stat = smbclient.stat(full_path)
@@ -66,7 +76,8 @@ class SmbTransport(Transport):
         return results
 
     def retrieve(self, remote_path: str, local_dir: str) -> str | None:
-        filename = os.path.basename(remote_path)
+        self._ensure_session()
+        filename = ntpath.basename(remote_path)
         local_path = os.path.join(local_dir, filename)
         try:
             with smbclient.open_file(remote_path, mode="rb") as remote_f:
@@ -78,6 +89,7 @@ class SmbTransport(Transport):
             return None
 
     def detect_volumes(self) -> list[str]:
+        self._ensure_session()
         volumes = []
         for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
             try:
