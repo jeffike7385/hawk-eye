@@ -73,9 +73,18 @@ def _enhance_image(image: Image.Image) -> Image.Image:
 
 
 def read_image_ocr(file_path: str) -> str:
-    image = Image.open(file_path)
-    enhanced = _enhance_image(image)
-    return pytesseract.image_to_string(enhanced)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        image = Image.open(file_path)
+        if image.mode in ("P", "PA"):
+            image = image.convert("RGBA")
+        if image.mode == "RGBA":
+            bg = Image.new("RGB", image.size, (255, 255, 255))
+            bg.paste(image, mask=image.split()[3])
+            image = bg
+        enhanced = _enhance_image(image)
+        return pytesseract.image_to_string(enhanced)
 
 
 EXTENSION_MAP = {
