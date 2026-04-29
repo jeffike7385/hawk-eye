@@ -65,11 +65,14 @@ def read_pptx(file_path: str) -> str:
 
 
 def read_image_ocr(file_path: str) -> str:
-    import warnings
-    import numpy as np
-    import cv2
-    import pytesseract
-    from PIL import Image, ImageEnhance
+    try:
+        import warnings
+        import numpy as np
+        import cv2
+        import pytesseract
+        from PIL import Image, ImageEnhance
+    except (ImportError, AttributeError):
+        return ""
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
