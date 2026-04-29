@@ -17,16 +17,21 @@ def read_text(file_path: str) -> str:
 
 
 def read_pdf(file_path: str) -> str:
+    import warnings
+    import logging
+    logging.getLogger("PyPDF2").setLevel(logging.ERROR)
     content = ""
-    with open(file_path, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
-        for page in reader.pages:
-            try:
-                text = page.extract_text()
-                if text:
-                    content += text + "\n"
-            except Exception:
-                continue
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with open(file_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                try:
+                    text = page.extract_text()
+                    if text:
+                        content += text + "\n"
+                except Exception:
+                    continue
     return content
 
 
