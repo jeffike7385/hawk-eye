@@ -12,8 +12,8 @@ class ScanOrchestrator:
         self._max_bytes = max_file_size_mb * 1024 * 1024
         self._debug = debug
 
-    def enumerate(self, paths: list[str], exclude_patterns: list[str]) -> list[FileMetadata]:
-        return self._transport.enumerate(paths, exclude_patterns)
+    def enumerate(self, paths: list[str], exclude_patterns: list[str], progress_callback=None) -> list[FileMetadata]:
+        return self._transport.enumerate(paths, exclude_patterns, progress_callback=progress_callback)
 
     def scan(self, file_list: list[FileMetadata], temp_dir: str, progress_callback=None) -> tuple[list[Finding], list[SkippedFile]]:
         findings: list[Finding] = []

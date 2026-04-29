@@ -50,7 +50,7 @@ class SmbTransport(Transport):
         except Exception:
             return False
 
-    def _walk_safe(self, unc_path: str, exclude_patterns: list[str], results: list[FileMetadata]):
+    def _walk_safe(self, unc_path: str, exclude_patterns: list[str], results: list[FileMetadata], progress_callback=None):
         try:
             entries = list(smbclient.scandir(unc_path))
         except Exception as e:
@@ -85,13 +85,15 @@ class SmbTransport(Transport):
                         size_bytes=size,
                         extension=ext.lower(),
                     ))
+                    if progress_callback:
+                        progress_callback(len(results), entry.name)
             except Exception:
                 continue
 
         for d in dirs:
-            self._walk_safe(d, exclude_patterns, results)
+            self._walk_safe(d, exclude_patterns, results, progress_callback)
 
-    def enumerate(self, paths: list[str], exclude_patterns: list[str]) -> list[FileMetadata]:
+    def enumerate(self, paths: list[str], exclude_patterns: list[str], progress_callback=None) -> list[FileMetadata]:
         self._ensure_session()
         results = []
         for path in paths:
@@ -99,7 +101,7 @@ class SmbTransport(Transport):
             if self._debug:
                 print(f"[DEBUG] Enumerating: {path} -> {unc}", file=sys.stderr)
                 print(f"[DEBUG] Exclude patterns: {exclude_patterns}", file=sys.stderr)
-            self._walk_safe(unc, exclude_patterns, results)
+            self._walk_safe(unc, exclude_patterns, results, progress_callback)
             if self._debug:
                 print(f"[DEBUG] Found {len(results)} files so far", file=sys.stderr)
         return results

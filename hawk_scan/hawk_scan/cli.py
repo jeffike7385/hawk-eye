@@ -103,8 +103,16 @@ def main():
 
     exclude_patterns = config.get("exclude_patterns", [])
 
-    with console.status("[bold cyan]Enumerating remote files...[/bold cyan]") as status:
-        file_list = orchestrator.enumerate(scan_paths, exclude_patterns)
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+        console=console, transient=True,
+    ) as enum_progress:
+        enum_task = enum_progress.add_task("Enumerating remote files...", total=None)
+
+        def on_enum(count, filename):
+            enum_progress.update(enum_task, description=f"Enumerating... {count} files found")
+
+        file_list = orchestrator.enumerate(scan_paths, exclude_patterns, progress_callback=on_enum)
     console.print(f"Found [bold]{len(file_list)}[/bold] scannable files")
 
     temp_dir = tempfile.mkdtemp(prefix="hawk_scan_")
