@@ -1,143 +1,109 @@
-# === US PII Patterns ===
+# Hawk Scan Default Fingerprints — PII & Document Classification
+#
+# min_matches: only flag if this many matches found in a single file
+# require_all: compound rule — all sub-patterns must match in the same file
+# context_keywords: boosts confidence when these words appear near matches
+
+# === Social Security Numbers ===
+# Only flag files with 3+ SSNs (bulk exposure, not a stray number)
 
 SSN:
   pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
   severity: high
   category: pii
+  min_matches: 3
   context_keywords: ["ssn", "social security", "tax id", "taxpayer"]
+
+SSN No Dashes:
+  pattern: "\\b(?!000|666|9\\d{2})\\d{3}(?!00)\\d{2}(?!0000)\\d{4}\\b"
+  severity: high
+  category: pii
+  min_matches: 3
+  context_keywords: ["ssn", "social security", "tax id", "taxpayer"]
+
+# === Credit Card Numbers ===
+# Only flag files with 10+ (a list/database extract, not a stray number)
+
+Credit Card Number:
+  pattern: "\\b(?:4\\d{3}|5[1-5]\\d{2}|3[47]\\d{2}|6(?:011|5\\d{2}))[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b"
+  severity: high
+  category: pii
+  min_matches: 10
+
+# === Driver License Numbers ===
+# Only flag files with 10+ (a list, not isolated)
+
+Driver License:
+  pattern: "\\b[A-Z]\\d{6,8}\\b"
+  severity: medium
+  category: pii
+  min_matches: 10
+  context_keywords: ["driver", "license", "licence", "DL", "CDL"]
+
+# === Bank Account + Routing Number (co-occurrence) ===
+# Only flags when BOTH appear in the same file
+
+Bank Account with Routing Number:
+  severity: high
+  category: pii
+  require_all:
+    routing_number: "\\b(?:0[1-9]|[1-2]\\d|3[0-2])\\d{7}\\b"
+    account_number: "\\b\\d{8,17}\\b"
+
+# === US Passport ===
 
 US Passport Number:
   pattern: "\\b[A-Z]\\d{8}\\b"
   severity: high
   category: pii
+  min_matches: 2
   context_keywords: ["passport", "travel document"]
+
+# === Tax IDs ===
 
 ITIN:
   pattern: "\\b9\\d{2}-[7-9]\\d-\\d{4}\\b"
   severity: high
   category: pii
+  min_matches: 2
   context_keywords: ["itin", "taxpayer", "tax"]
 
 EIN:
   pattern: "\\b\\d{2}-\\d{7}\\b"
   severity: medium
   category: pii
-  context_keywords: ["ein", "employer", "federal tax"]
+  min_matches: 3
+  context_keywords: ["ein", "employer", "federal tax", "fein"]
 
-US Phone Number:
-  pattern: "\\b(?:\\+?1[-. ]?)?\\(?\\d{3}\\)?[-. ]?\\d{3}[-. ]?\\d{4}\\b"
-  severity: low
-  category: pii
+# === Bulk Email Exposure ===
+# Only flag files with 10+ emails (a contact list, not signatures)
 
 Email:
   pattern: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b"
   severity: low
   category: pii
+  min_matches: 10
 
-Credit Card Number:
-  pattern: "\\b(?:4\\d{3}|5[1-5]\\d{2}|3[47]\\d{2}|6(?:011|5\\d{2}))[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b"
+# === Document Classification Markings ===
+
+Classification - Confidential:
+  pattern: "(?i)\\b(CONFIDENTIAL|STRICTLY CONFIDENTIAL)\\b"
   severity: high
-  category: pii
+  category: classification
 
-US Bank Routing Number:
-  pattern: "\\b(?:0[1-9]|[1-2]\\d|3[0-2])\\d{7}\\b"
+Classification - Secret:
+  pattern: "(?i)\\bSECRET\\b"
+  severity: high
+  category: classification
+  context_keywords: ["classified", "classification", "handling", "distribution"]
+
+Classification - Restricted:
+  pattern: "(?i)\\bRESTRICTED\\b"
   severity: medium
-  category: pii
-  context_keywords: ["routing", "aba", "bank", "transit"]
+  category: classification
+  context_keywords: ["classified", "classification", "handling", "distribution"]
 
-Driver License:
-  pattern: "\\b[A-Z]\\d{3,8}\\b"
+Classification - Internal Use Only:
+  pattern: "(?i)\\bINTERNAL USE(\\s+ONLY)?\\b"
   severity: medium
-  category: pii
-  context_keywords: ["driver", "license", "licence", "DL", "CDL"]
-
-# === Azure / M365 / Microsoft Secrets ===
-
-Azure AD Client Secret:
-  pattern: "(?i)(?:client.?secret|app.?secret)[\\s:=]+['\"]?([A-Za-z0-9~._-]{34,})['\"]?"
-  severity: high
-  category: secret
-
-Azure Storage Account Key:
-  pattern: "[A-Za-z0-9+/]{86}=="
-  severity: high
-  category: secret
-  context_keywords: ["AccountKey", "storage", "DefaultEndpointsProtocol"]
-
-Azure SAS Token:
-  pattern: "[?&]s(?:ig|v|e|sp|srt|ss|se|st|spr)=[A-Za-z0-9%+/=&]+"
-  severity: high
-  category: secret
-  context_keywords: ["blob.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "file.core.windows.net"]
-
-Azure SQL Connection String:
-  pattern: "(?i)Server=tcp:[^;]+;.*(?:Password|Pwd)=[^;]+"
-  severity: high
-  category: secret
-
-Azure Service Bus Connection String:
-  pattern: "(?i)Endpoint=sb://[^;]+;SharedAccessKey(?:Name)?=[^;]+"
-  severity: high
-  category: secret
-
-Microsoft Graph Token:
-  pattern: "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}"
-  severity: high
-  category: secret
-  context_keywords: ["graph.microsoft.com", "Bearer", "access_token"]
-
-Azure DevOps PAT:
-  pattern: "(?i)(?:pat|token)[\\s:=]+['\"]?[a-z2-7]{52}['\"]?"
-  severity: high
-  category: secret
-  context_keywords: ["dev.azure.com", "visualstudio.com", "devops"]
-
-# === Power Platform / Dynamics ===
-
-Dataverse Connection String:
-  pattern: "(?i)AuthType=\\w+;.*Url=https://[^;]+\\.dynamics\\.com"
-  severity: high
-  category: secret
-
-Dynamics 365 Connection String:
-  pattern: "(?i)(?:ServiceUri|Url)\\s*=\\s*https://[^;]+\\.crm\\d*\\.dynamics\\.com[^;]*;.*(?:Password|ClientSecret)=[^;]+"
-  severity: high
-  category: secret
-
-Power Automate Connection:
-  pattern: "(?i)(?:shared_[a-z]+|connectionId)[\\s:=]+['\"]?[a-f0-9-]{36}['\"]?"
-  severity: medium
-  category: secret
-  context_keywords: ["flow", "power automate", "logic app"]
-
-# === Generic Secrets ===
-
-Private Key File:
-  pattern: "-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
-  severity: high
-  category: secret
-
-PFX Certificate Reference:
-  pattern: "(?i)(?:pfx|p12|certificate)[\\s:=]+['\"]?[^'\"\\s]+\\.(?:pfx|p12)['\"]?"
-  severity: medium
-  category: secret
-
-Generic Password in Config:
-  pattern: "(?i)(?:password|passwd|pwd|secret|token)[\\s]*[=:][\\s]*['\"]?[^\\s'\"]{8,}['\"]?"
-  severity: medium
-  category: secret
-
-Basic Auth in URL:
-  pattern: "[a-zA-Z]{3,10}://[^/\\s:@]{3,20}:[^/\\s:@]{3,20}@.{1,100}"
-  severity: high
-  category: secret
-
-Slack Token:
-  pattern: "xox[bpors]-[0-9A-Za-z\\-]{10,}"
-  severity: high
-  category: secret
-
-Slack Webhook:
-  pattern: "https://hooks\\.slack\\.com/services/T[0-9A-Za-z_-]{10}/B[0-9A-Za-z_-]{10}/[0-9A-Za-z_-]{23}"
-  severity: high
-  category: secret
+  category: classification

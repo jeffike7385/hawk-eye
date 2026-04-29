@@ -90,3 +90,97 @@ def test_engine_context_keywords():
 
     low_conf = engine.scan_text("code is 123-45-6789")
     assert low_conf[0]["confidence"] == "low"
+
+
+def test_min_matches_filters_below_threshold():
+    fingerprints = {
+        "SSN": {
+            "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            "severity": "high",
+            "category": "pii",
+            "min_matches": 3,
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    results = engine.scan_text("SSN: 123-45-6789 and 234-56-7890")
+    assert results == []
+
+
+def test_min_matches_passes_at_threshold():
+    fingerprints = {
+        "SSN": {
+            "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            "severity": "high",
+            "category": "pii",
+            "min_matches": 3,
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    results = engine.scan_text("SSN: 123-45-6789 and 234-56-7890 and 345-67-8901")
+    assert len(results) == 1
+    assert results[0]["match_count"] == 3
+
+
+def test_min_matches_defaults_to_one():
+    fingerprints = {
+        "Email": {
+            "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+            "severity": "low",
+            "category": "pii",
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    results = engine.scan_text("contact john@example.com")
+    assert len(results) == 1
+
+
+def test_compound_rule_requires_all():
+    fingerprints = {
+        "Bank Combo": {
+            "severity": "high",
+            "category": "pii",
+            "require_all": {
+                "routing": "\\b\\d{9}\\b",
+                "account": "\\b\\d{10,17}\\b",
+            },
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    results = engine.scan_text("routing: 021000021 account: 1234567890")
+    assert len(results) == 1
+    assert results[0]["pattern_name"] == "Bank Combo"
+    assert any("routing" in m for m in results[0]["matches"])
+    assert any("account" in m for m in results[0]["matches"])
+
+
+def test_compound_rule_skips_when_partial():
+    fingerprints = {
+        "Bank Combo": {
+            "severity": "high",
+            "category": "pii",
+            "require_all": {
+                "routing": "\\b\\d{9}\\b",
+                "account": "\\b\\d{10,17}\\b",
+            },
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    results = engine.scan_text("routing: 021000021 but no account number here")
+    assert results == []
+
+
+def test_compound_rule_with_redaction():
+    fingerprints = {
+        "Bank Combo": {
+            "severity": "high",
+            "category": "pii",
+            "require_all": {
+                "routing": "\\b\\d{9}\\b",
+                "account": "\\b\\d{10,17}\\b",
+            },
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=True)
+    results = engine.scan_text("routing: 021000021 account: 1234567890")
+    assert len(results) == 1
+    assert any("*" in m for m in results[0]["matches"])

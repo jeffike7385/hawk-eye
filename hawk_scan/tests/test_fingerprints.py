@@ -11,38 +11,45 @@ def default_fingerprints():
         return yaml.safe_load(f)
 
 
-def test_default_fingerprints_has_us_pii(default_fingerprints):
+def test_default_fingerprints_has_pii(default_fingerprints):
     names = set(default_fingerprints.keys())
     assert "SSN" in names
     assert "Email" in names
-    assert "US Phone Number" in names
     assert "Credit Card Number" in names
 
 
-def test_default_fingerprints_has_azure_secrets(default_fingerprints):
+def test_default_fingerprints_has_classifications(default_fingerprints):
     names = set(default_fingerprints.keys())
-    assert "Azure Storage Account Key" in names
-    assert "Azure SAS Token" in names
-    assert "Azure AD Client Secret" in names
+    assert "Classification - Confidential" in names
+    assert "Classification - Secret" in names
+    assert "Classification - Internal Use Only" in names
 
 
-def test_default_fingerprints_has_m365_secrets(default_fingerprints):
-    names = set(default_fingerprints.keys())
-    assert "Azure DevOps PAT" in names
+def test_default_fingerprints_has_compound_rules(default_fingerprints):
+    bank = default_fingerprints["Bank Account with Routing Number"]
+    assert "require_all" in bank
+    assert "routing_number" in bank["require_all"]
+    assert "account_number" in bank["require_all"]
 
 
 def test_all_patterns_compile(default_fingerprints):
     for name, fp in default_fingerprints.items():
-        pattern = fp["pattern"] if isinstance(fp, dict) else fp
-        try:
-            re.compile(pattern)
-        except re.error as e:
-            pytest.fail(f"Pattern '{name}' failed to compile: {e}")
+        if "pattern" in fp:
+            try:
+                re.compile(fp["pattern"])
+            except re.error as e:
+                pytest.fail(f"Pattern '{name}' failed to compile: {e}")
+        elif "require_all" in fp:
+            for part_name, part_pattern in fp["require_all"].items():
+                try:
+                    re.compile(part_pattern)
+                except re.error as e:
+                    pytest.fail(f"Pattern '{name}.{part_name}' failed to compile: {e}")
 
 
 def test_all_patterns_have_severity(default_fingerprints):
     for name, fp in default_fingerprints.items():
-        assert isinstance(fp, dict), f"Pattern '{name}' must be a dict with severity"
+        assert isinstance(fp, dict), f"Pattern '{name}' must be a dict"
         assert "severity" in fp, f"Pattern '{name}' missing severity"
         assert fp["severity"] in ("high", "medium", "low"), f"Pattern '{name}' has invalid severity"
 
@@ -50,6 +57,13 @@ def test_all_patterns_have_severity(default_fingerprints):
 def test_all_patterns_have_category(default_fingerprints):
     for name, fp in default_fingerprints.items():
         assert "category" in fp, f"Pattern '{name}' missing category"
+
+
+def test_pii_patterns_have_min_matches(default_fingerprints):
+    assert default_fingerprints["SSN"]["min_matches"] == 3
+    assert default_fingerprints["Credit Card Number"]["min_matches"] == 10
+    assert default_fingerprints["Driver License"]["min_matches"] == 10
+    assert default_fingerprints["Email"]["min_matches"] == 10
 
 
 def test_ssn_pattern_matches(default_fingerprints):

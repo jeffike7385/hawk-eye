@@ -1,17 +1,49 @@
 import os
 import json
+import ntpath
+from collections import defaultdict
 from dataclasses import asdict
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from hawk_scan import __version__
 from hawk_scan.models import ScanReport
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+SEVERITY_WEIGHT = {"high": 10, "medium": 3, "low": 1}
+
 
 def _sorted_findings(report: ScanReport):
     return sorted(
         report.result.findings,
         key=lambda f: (SEVERITY_ORDER.get(f.severity, 99), f.file_path),
     )
+
+
+def _directory_priorities(report: ScanReport) -> list[dict]:
+    dir_stats = defaultdict(lambda: {"high": 0, "medium": 0, "low": 0, "total": 0, "files": set()})
+    for f in report.result.findings:
+        parent = ntpath.dirname(f.file_path)
+        if not parent:
+            parent = f.file_path
+        dir_stats[parent]["total"] += 1
+        dir_stats[parent][f.severity] += 1
+        dir_stats[parent]["files"].add(f.file_path)
+
+    priorities = []
+    for directory, stats in dir_stats.items():
+        score = (stats["high"] * SEVERITY_WEIGHT["high"]
+                 + stats["medium"] * SEVERITY_WEIGHT["medium"]
+                 + stats["low"] * SEVERITY_WEIGHT["low"])
+        priorities.append({
+            "directory": directory,
+            "score": score,
+            "high": stats["high"],
+            "medium": stats["medium"],
+            "low": stats["low"],
+            "total": stats["total"],
+            "file_count": len(stats["files"]),
+        })
+    return sorted(priorities, key=lambda p: -p["score"])
+
 
 def generate_html_report(report: ScanReport, output_path: str) -> None:
     template_dir = os.path.join(os.path.dirname(__file__))
@@ -25,6 +57,7 @@ def generate_html_report(report: ScanReport, output_path: str) -> None:
         severity_summary=report.severity_summary(),
         category_summary=report.category_summary(),
         sorted_findings=_sorted_findings(report),
+        directory_priorities=_directory_priorities(report),
         version=__version__,
     )
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
