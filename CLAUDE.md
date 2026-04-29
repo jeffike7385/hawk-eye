@@ -4,14 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This repository contains two related projects:
-
-1. **Hawk Eye** (`hawk_scanner/`) — The upstream open-source multi-source PII/secrets scanner (S3, MySQL, PostgreSQL, MongoDB, etc.)
-2. **Hawk Scan** (`hawk_scan/`) — A purpose-built fork that extracts Hawk Eye's scanning core into a standalone Windows CLI tool for remotely scanning domain-joined endpoints via WinRM/SMB
-
-Active development is on **Hawk Scan**. Hawk Eye serves as the upstream reference.
-
-## Hawk Scan (`hawk_scan/`)
+Hawk Scan is a standalone Windows CLI tool for remotely scanning domain-joined endpoints for PII, secrets, and classified data via WinRM/SMB. Built for enterprise admins who need to check devices before international travel — no software installed on the target endpoint.
 
 ### Build & Run Commands
 
@@ -80,30 +73,6 @@ Four-layer design with clean separation:
 
 ---
 
-## Hawk Eye (`hawk_scanner/`) — Upstream Reference
+## Lineage
 
-### Entry Point
-
-`hawk_scanner/main.py` — Dispatches to command modules via `importlib.import_module(f"hawk_scanner.commands.{command}")`. The `all` command iterates over all source keys in the connection file.
-
-### Internals (`hawk_scanner/internals/system.py`)
-
-Monolithic module with config loading, regex matching (`match_strings()`), file readers (`scan_file()`, `read_pdf()`, `read_office_document()`, `enhance_and_ocr()`), redaction (`RedactData()`), Slack/Jira notifications, and severity evaluation via JMESPath.
-
-### Command Modules (`hawk_scanner/commands/`)
-
-Each exports `execute(args)` → list of result dicts. Supports: s3, mysql, postgresql, mongodb, couchdb, redis, firebase, gcs, fs, gdrive, gdrive_workspace, slack, text.
-
-### Config
-
-- `connection.yml` — Source credentials, notification settings, severity rules
-- `fingerprint.yml` — Bare regex patterns (no severity/category metadata)
-
-### Version
-
-`setup.py` — `VERSION = "0.3.39"`
-
-### CI/CD
-
-- Docker build (`.github/workflows/build.yml`): pushes to Docker Hub on main
-- PyPI publish (`.github/workflows/pypi.yml`): on GitHub release
+This project was forked from [rohitcoder/hawk-eye](https://github.com/rohitcoder/hawk-eye), a multi-source PII/secrets scanner. The original `hawk_scanner/` code has been removed. Hawk Scan extracts and improves the scanning core (regex engine, file readers, OCR pipeline) while replacing everything else with purpose-built remote endpoint scanning infrastructure.
