@@ -93,19 +93,16 @@ def read_image_ocr(file_path: str) -> str:
 
 
 EXTENSION_MAP = {
-    ".txt": read_text, ".csv": read_text, ".log": read_text,
-    ".json": read_text, ".xml": read_text, ".yml": read_text,
-    ".yaml": read_text, ".ini": read_text, ".cfg": read_text,
-    ".conf": read_text, ".md": read_text, ".html": read_text,
-    ".htm": read_text, ".ps1": read_text, ".bat": read_text,
-    ".cmd": read_text, ".py": read_text, ".js": read_text,
-    ".ts": read_text,
+    ".txt": read_text,
+    ".csv": read_text,
     ".pdf": read_pdf,
     ".docx": read_docx,
     ".xlsx": read_xlsx,
     ".pptx": read_pptx,
-    ".png": read_image_ocr, ".jpg": read_image_ocr,
-    ".jpeg": read_image_ocr, ".gif": read_image_ocr,
+    ".png": read_image_ocr,
+    ".jpg": read_image_ocr,
+    ".jpeg": read_image_ocr,
+    ".gif": read_image_ocr,
     ".bmp": read_image_ocr,
 }
 
