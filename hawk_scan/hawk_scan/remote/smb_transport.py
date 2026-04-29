@@ -5,6 +5,7 @@ import fnmatch
 import smbclient
 from hawk_scan.models import FileMetadata
 from hawk_scan.remote.transport import Transport, Credentials
+from hawk_scan.scanner.readers import SCANNABLE_EXTENSIONS
 
 
 class SmbTransport(Transport):
@@ -59,10 +60,12 @@ class SmbTransport(Transport):
                         continue
                     dirs.append(full)
                 elif entry.is_file():
+                    _, ext = os.path.splitext(entry.name)
+                    if ext.lower() not in SCANNABLE_EXTENSIONS:
+                        continue
                     if any(fnmatch.fnmatch(entry.name, p) for p in exclude_patterns if p.startswith("*")):
                         continue
                     full_path = ntpath.join(unc_path, entry.name)
-                    _, ext = os.path.splitext(entry.name)
                     try:
                         info = entry.stat()
                         size = info.st_size

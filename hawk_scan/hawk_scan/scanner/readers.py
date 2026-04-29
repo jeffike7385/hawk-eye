@@ -95,6 +95,8 @@ EXTENSION_MAP = {
     ".bmp": read_image_ocr,
 }
 
+SCANNABLE_EXTENSIONS = set(EXTENSION_MAP.keys())
+
 
 def read_file(file_path: str) -> str:
     _, ext = os.path.splitext(file_path)
