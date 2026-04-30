@@ -5,6 +5,11 @@ import os
 
 
 @pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture
 def tmp_scan_dir():
     with tempfile.TemporaryDirectory(prefix="hawk_scan_test_") as d:
         yield d
