@@ -3,6 +3,8 @@ connection.yml
 hawk_scan/test_smb.py
 .DS_Store
 data/
+frontend/node_modules/
+frontend/dist/
 previous_alerts.json
 user_ids.json
 # Byte-compiled / optimized / DLL files
