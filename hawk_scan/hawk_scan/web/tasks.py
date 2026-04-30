@@ -88,11 +88,11 @@ def _execute_scan(
         _update_scan(transport=transport.name)
 
         # 5. Load fingerprints
-        fp_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "fingerprints",
-            "default.yml",
+        fp_dir = os.environ.get(
+            "HAWKSCAN_FINGERPRINTS_DIR",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fingerprints"),
         )
+        fp_path = os.path.join(fp_dir, "default.yml")
         fingerprints = load_fingerprints(fp_path)
 
         # 6. Create ScanEngine and ScanOrchestrator

@@ -13,6 +13,8 @@ COPY hawk_scan/fingerprints/ hawk_scan/fingerprints/
 
 RUN pip install --no-cache-dir ./hawk_scan[web]
 
+ENV HAWKSCAN_FINGERPRINTS_DIR=/app/hawk_scan/fingerprints
+
 USER hawkscan
 
 EXPOSE 8000
