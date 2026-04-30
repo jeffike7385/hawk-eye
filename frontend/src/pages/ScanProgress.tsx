@@ -106,9 +106,12 @@ export function ScanProgress() {
       </div>
       {total > 0 && <ProgressBar current={current} total={total} />}
       <div className="mt-6 bg-gray-900 rounded-lg p-4 text-sm text-gray-400">
-        <p>Polling for updates every 3 seconds...</p>
-        {scan.status === "enumerating" && <p className="mt-2">Enumerating remote files. This can take several minutes for large directory trees.</p>}
-        {scan.status === "scanning" && <p className="mt-2">Scanning {current} of {total} files for PII patterns.</p>}
+        {scan.status === "enumerating" && (
+          <p>Enumerating remote files{scan.files_found ? ` — ${scan.files_found} found so far` : ""}. This can take several minutes for large directory trees.</p>
+        )}
+        {scan.status === "scanning" && (
+          <p>Scanning files for PII patterns — {current} of {total} complete.</p>
+        )}
       </div>
     </div>
   );
