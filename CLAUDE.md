@@ -71,6 +71,39 @@ Four-layer design with clean separation:
 
 - Design spec: `docs/superpowers/specs/2026-04-29-hawk-scan-remote-endpoint-scanner-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-04-29-hawk-scan.md`
+- Web containerization spec: `docs/superpowers/specs/2026-04-30-hawk-scan-web-containerization-design.md`
+- Web implementation plan: `docs/superpowers/plans/2026-04-30-hawk-scan-web.md`
+
+### Web Application
+
+The web frontend is an optional deployment mode alongside the standalone CLI.
+
+```bash
+# Backend (API server)
+cd hawk_scan && pip install -e ".[dev,web]"
+uvicorn hawk_scan.web.app:create_app --factory --reload --port 8000
+
+# Frontend (dev server with proxy)
+cd frontend && npm install && npm run dev
+
+# Celery worker (requires Redis running)
+celery -A hawk_scan.web.celery_app:celery worker --concurrency=3 --beat -l info
+
+# Run web tests
+cd hawk_scan && pytest tests/test_web_*.py tests/test_api_*.py tests/test_auth.py tests/test_crypto.py tests/test_tasks.py tests/test_beat.py tests/test_report_download.py -v
+
+# Docker (full stack)
+docker compose up --build
+```
+
+**`hawk_scan/web/`** — Web application layer wrapping the scanning core:
+- `app.py` — FastAPI application factory
+- `routes/scans.py` — Scan CRUD + WebSocket progress
+- `routes/auth.py` — Entra ID OAuth2 flow
+- `tasks.py` — Celery task that calls `ScanOrchestrator`
+- `db.py` — SQLAlchemy models (ScanRecord, FindingRecord, SkippedFileRecord)
+- `crypto.py` — Fernet encryption for credential transit through Redis
+- `beat.py` — Scheduled retention cleanup and stale scan recovery
 
 ---
 
