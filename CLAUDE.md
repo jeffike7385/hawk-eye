@@ -21,8 +21,9 @@ cd hawk_scan && pytest tests/test_engine.py -v
 # Run a specific test
 cd hawk_scan && pytest tests/test_engine.py::test_engine_finds_ssn -v
 
-# Build Windows exe (must run on Windows)
-cd hawk_scan && pip install pyinstaller && pyinstaller hawk_scan.spec
+# Build + sign Windows exe (must run on Windows)
+cd hawk_scan && .\build.ps1                    # full build + sign
+cd hawk_scan && .\build.ps1 -SkipSign          # build only
 
 # Run the CLI (dev mode)
 hawk_scan WORKSTATION-01 --connection connection.yml

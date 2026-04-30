@@ -1,115 +1,102 @@
-# Windows Build Guide — Packaging Hawk Scan as an Executable
+# Windows Build Guide — Packaging Hawk Scan as a Signed Executable
 
 ## Prerequisites
 
-- Windows 10/11 x64 machine (or Windows Server)
-- Python 3.11+ installed (python.org, not Microsoft Store)
-- Tesseract OCR installed (https://github.com/UB-Mannheim/tesseract/wiki)
-- Git (to clone the repo)
+- Windows 10/11 x64 (or Windows Server)
+- Python 3.11+ installed (python.org — not the Microsoft Store stub)
+- Git
+- Windows 10/11 SDK (provides `signtool.exe` for code signing)
+- A code-signing certificate in the `CurrentUser\My` certificate store
 
-## Step 1: Clone and Install
+Tesseract OCR is downloaded and bundled automatically by the build script.
 
-```powershell
-git clone https://github.com/your-org/hawk-eye.git
-cd hawk-eye\hawk_scan
-pip install -e ".[dev]"
-```
+## Quick Build
 
-## Step 2: Verify Tests Pass
+From the `hawk_scan/` directory:
 
 ```powershell
-pytest tests\ -v
+.\build.ps1
 ```
 
-All 94 tests should pass. If OCR tests fail, verify Tesseract is installed and `tesseract` is on your PATH.
+This single command:
 
-## Step 3: Locate Tesseract
+1. Vendors Tesseract OCR into `vendor/tesseract/` (downloads from GitHub on first run, or copies from an existing system install)
+2. Installs all Python dependencies via `pip install -e ".[dev]"`
+3. Verifies all required imports
+4. Builds a single-file `dist\hawk_scan.exe` via PyInstaller
+5. Finds your code-signing cert by EKU + expiration date
+6. Signs with SHA-256 + RFC 3161 timestamp (DigiCert)
+7. Verifies the signature
 
-Find your Tesseract installation. Typical paths:
+Output: `dist\hawk_scan.exe` (~140 MB)
 
-```
-C:\Program Files\Tesseract-OCR\tesseract.exe
-C:\Program Files\Tesseract-OCR\tessdata\eng.traineddata
-```
-
-## Step 4: Update the PyInstaller Spec
-
-Edit `hawk_scan.spec` to include Tesseract binaries. Add to the `datas` list:
-
-```python
-datas=[
-    ('fingerprints/default.yml', 'fingerprints'),
-    ('hawk_scan/report/template.html', 'hawk_scan/report'),
-    ('config.yml.sample', '.'),
-    # Add Tesseract — adjust path if your install location differs
-    (r'C:\Program Files\Tesseract-OCR\tesseract.exe', 'tesseract'),
-    (r'C:\Program Files\Tesseract-OCR\tessdata\eng.traineddata', 'tesseract/tessdata'),
-],
-```
-
-## Step 5: Add Tesseract Path Resolution
-
-The bundled exe needs to find Tesseract at runtime. Add this to `hawk_scan/cli.py` in `main()`, before the scan runs:
-
-```python
-import pytesseract
-import sys
-
-# Point pytesseract at bundled Tesseract when running as frozen exe
-if getattr(sys, 'frozen', False):
-    tesseract_path = os.path.join(sys._MEIPASS, 'tesseract', 'tesseract.exe')
-    if os.path.exists(tesseract_path):
-        pytesseract.pytesseract.tesseract_cmd = tesseract_path
-```
-
-## Step 6: Build
+## Build Script Options
 
 ```powershell
-pyinstaller hawk_scan.spec
+.\build.ps1                              # full build + sign (auto-find cert expiring 2028-04-18)
+.\build.ps1 -Thumbprint <SHA1>           # sign with explicit cert thumbprint
+.\build.ps1 -CertExpiry "2030-01-15"     # match cert by a different expiration date
+.\build.ps1 -SkipSign                    # build only, no signing
+.\build.ps1 -SkipTesseractDownload       # skip Tesseract download (use existing vendor/)
+.\build.ps1 -TimestampUrl <url>          # override timestamp server
 ```
 
-This produces `dist\hawk_scan\` containing:
+## Manual Signing
 
-```
-dist\hawk_scan\
-├── hawk_scan.exe          # Main executable
-├── tesseract\             # Bundled OCR engine
-│   ├── tesseract.exe
-│   └── tessdata\
-│       └── eng.traineddata
-├── fingerprints\
-│   └── default.yml        # Default PII patterns
-├── config.yml.sample      # Reference config
-└── [bundled Python + dependencies]
-```
-
-## Step 7: Test the Build
+If you need to sign separately (e.g., after a `-SkipSign` build):
 
 ```powershell
-cd dist\hawk_scan
-.\hawk_scan.exe --version
-.\hawk_scan.exe WORKSTATION-01 --transport smb --username "DOMAIN\admin" --paths "C:\Users\targetuser\Documents"
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /sha1 <THUMBPRINT> /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\hawk_scan.exe
 ```
 
-## Step 8: Distribute
+Verify:
 
-Copy the entire `dist\hawk_scan\` folder to:
+```powershell
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" verify /pa /v dist\hawk_scan.exe
+```
+
+## Test the Build
+
+```powershell
+.\dist\hawk_scan.exe --version
+.\dist\hawk_scan.exe WORKSTATION-01 --transport smb --username "DOMAIN\admin" --paths "C:\Users\targetuser\Documents"
+```
+
+## Distribute
+
+Copy `dist\hawk_scan.exe` (single file, no folder) to:
 - A network share accessible to admins
 - A USB drive
 - Or install locally on admin workstations
 
-Admins run `hawk_scan.exe` directly — no Python, no dependencies, no installation.
+Admins run `hawk_scan.exe` directly — no Python, no dependencies, no installation required. The signature will validate on any machine that trusts your CA's root certificate (typically all domain-joined machines via GPO).
+
+## How It Works
+
+- **`hawk_scan.spec`** — PyInstaller spec configured for onefile output, bundles Tesseract binaries and tessdata from `vendor/tesseract/`, fingerprint patterns, report template, and sample config
+- **`runtime_hook_tesseract.py`** — PyInstaller runtime hook that sets `pytesseract.tesseract_cmd` and `TESSDATA_PREFIX` to point at the bundled Tesseract inside the frozen exe's temp directory
+- **`build.ps1`** — Orchestrates the full build + sign pipeline
 
 ## Troubleshooting
 
+**"Python 3.11+ not found"**
+Install Python from python.org (not the Microsoft Store). The build script searches common install paths and the `py` launcher. After installing, restart PowerShell.
+
 **"tesseract is not installed or not in PATH"**
-Verify the Tesseract exe was bundled correctly. Check that the `datas` paths in `hawk_scan.spec` match your Tesseract install location.
+At runtime, the bundled exe resolves Tesseract automatically via the runtime hook. If you see this error during development (not from the exe), install Tesseract or run `build.ps1` to vendor it.
 
 **Missing DLLs**
-PyInstaller should bundle everything, but if you see missing DLL errors, run `pyinstaller` with `--debug all` to identify what's missing and add it to `hiddenimports` or `binaries` in the spec.
+Run `python -m PyInstaller --debug all hawk_scan.spec` to identify what's missing and add it to `hiddenimports` or `binaries` in the spec.
 
-**Large exe size**
-The bundled exe will be ~100-150MB due to OpenCV, numpy, and Tesseract. This is expected. Use UPX compression (PyInstaller supports it) to reduce by ~30%.
+**Large exe size (~140 MB)**
+Expected — includes OpenCV, NumPy, Tesseract, and all document parsers. UPX is disabled because it conflicts with code signing and triggers AV false positives.
 
 **Antivirus flags**
-PyInstaller executables sometimes trigger AV false positives. Sign the exe with your organization's code signing certificate, or whitelist the hash in your endpoint protection.
+PyInstaller onefile executables sometimes trigger AV false positives. The code signature should prevent this on machines that trust your CA. If not, whitelist by hash in your endpoint protection.
+
+**Cert not found during signing**
+The script searches `CurrentUser\My` for a cert with code-signing EKU matching the expiration date. List your certs with:
+```powershell
+Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.3' } | Format-List Subject,Thumbprint,NotAfter
+```
+Pass `-Thumbprint <SHA1>` to select a specific cert.

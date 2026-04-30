@@ -56,10 +56,8 @@ def main():
     if args.exclude:
         config["exclude_patterns"] = list(set(config.get("exclude_patterns", []) + args.exclude))
 
-    fingerprints_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fingerprints")
-    default_fp_path = os.path.join(fingerprints_dir, "default.yml")
-    if not os.path.exists(default_fp_path):
-        default_fp_path = os.path.join(os.path.dirname(sys.executable), "fingerprints", "default.yml")
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(__file__)))
+    default_fp_path = os.path.join(base_dir, "fingerprints", "default.yml")
 
     default_fps = load_fingerprints(default_fp_path)
     custom_fp_path = args.custom_fingerprints or config.get("custom_fingerprints")

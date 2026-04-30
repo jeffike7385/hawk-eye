@@ -172,23 +172,15 @@ if ($SkipSign) {
     return
 }
 
-# Signing from LocalMachine\My with /sm requires admin to read the private key.
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Warning "PowerShell is NOT elevated. Signing from LocalMachine\My requires admin."
-    Write-Warning "Re-run this script in an elevated PowerShell, or use -SkipSign for a dev build."
-    throw "Not elevated — aborting before signtool call."
-}
-
 if (-not $Thumbprint) {
-    Write-Host "==> Searching LocalMachine\My for code-signing cert expiring $CertExpiry..."
+    Write-Host "==> Searching CurrentUser\My for code-signing cert expiring $CertExpiry..."
     $expiryDate = [datetime]::Parse($CertExpiry)
-    $cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object {
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object {
         ($_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.3') -and
         ($_.NotAfter.Date -eq $expiryDate.Date)
     } | Select-Object -First 1
     if (-not $cert) {
-        throw "No code-signing cert found in LocalMachine\My with NotAfter=$CertExpiry. Pass -Thumbprint explicitly."
+        throw "No code-signing cert found in CurrentUser\My with NotAfter=$CertExpiry. Pass -Thumbprint explicitly."
     }
     $Thumbprint = $cert.Thumbprint
     Write-Host "    Found: $($cert.Subject)"
@@ -203,7 +195,7 @@ if (-not (Test-Path $SignTool)) {
 }
 
 Write-Host "==> Signing with $SignTool"
-& $SignTool sign /sm /sha1 $Thumbprint /fd SHA256 /tr $TimestampUrl /td SHA256 $ExePath
+& $SignTool sign /sha1 $Thumbprint /fd SHA256 /tr $TimestampUrl /td SHA256 $ExePath
 if ($LASTEXITCODE -ne 0) { throw "signtool sign failed (exit $LASTEXITCODE)" }
 
 Write-Host "==> Verifying signature"
