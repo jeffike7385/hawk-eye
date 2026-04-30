@@ -19,8 +19,7 @@ def create_app(testing: bool = False, db_engine=None) -> FastAPI:
         url = settings.database_url.replace("+asyncpg", "")
         db_engine = create_engine(url)
 
-    if testing:
-        Base.metadata.create_all(db_engine)
+    Base.metadata.create_all(db_engine)
 
     factory = sessionmaker(bind=db_engine)
 
