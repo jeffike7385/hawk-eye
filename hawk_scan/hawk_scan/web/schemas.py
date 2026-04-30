@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
-HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-]{0,62}$")
+HOSTNAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9\-\.]{0,253}[A-Za-z0-9])?$")
 
 
 class ScanCreate(BaseModel):
@@ -20,7 +20,7 @@ class ScanCreate(BaseModel):
     @classmethod
     def validate_hostname(cls, v: str) -> str:
         if not HOSTNAME_RE.match(v):
-            raise ValueError("Invalid hostname: alphanumeric and hyphens only, max 63 chars")
+            raise ValueError("Invalid hostname: alphanumeric, hyphens, and dots only")
         return v
 
     @field_validator("transport")
