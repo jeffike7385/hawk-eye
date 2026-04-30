@@ -1,8 +1,37 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+import re
 from pathlib import Path
+from PyInstaller.utils.win32.versioninfo import (
+    VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable, StringStruct,
+    VarFileInfo, VarStruct,
+)
 
 block_cipher = None
+
+# Read version from hawk_scan/__init__.py
+_init = (Path(os.path.dirname(os.path.abspath(SPEC))) / "hawk_scan" / "__init__.py").read_text()
+_ver_str = re.search(r'__version__\s*=\s*["\']([^"\']+)', _init).group(1)
+_parts = [int(x) for x in _ver_str.split(".")] + [0] * (4 - len(_ver_str.split(".")))
+
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=tuple(_parts[:4]),
+        prodvers=tuple(_parts[:4]),
+    ),
+    kids=[
+        StringFileInfo([StringTable("040904B0", [
+            StringStruct("CompanyName", "MSRA"),
+            StringStruct("FileDescription", "Hawk Scan — Remote Endpoint PII & Secrets Scanner"),
+            StringStruct("FileVersion", _ver_str),
+            StringStruct("InternalName", "hawk_scan"),
+            StringStruct("OriginalFilename", "hawk_scan.exe"),
+            StringStruct("ProductName", "Hawk Scan"),
+            StringStruct("ProductVersion", _ver_str),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+    ],
+)
 
 # Tesseract binaries are expected at vendor/tesseract/ relative to this spec.
 # See build.ps1 — it downloads and extracts the UB-Mannheim portable build there.
@@ -77,4 +106,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
+    version=version_info,
 )

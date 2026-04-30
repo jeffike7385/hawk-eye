@@ -45,9 +45,9 @@ def negotiate_transport(
     if force_transport == "smb":
         return SmbTransport(target_host, credentials, timeout, debug=debug)
     if force_transport == "winrm":
-        return WinRmTransport(target_host, credentials, timeout)
+        return WinRmTransport(target_host, credentials, timeout, debug=debug)
 
-    winrm = WinRmTransport(target_host, credentials, timeout)
+    winrm = WinRmTransport(target_host, credentials, timeout, debug=debug)
     if winrm.is_available():
         return winrm
     smb = SmbTransport(target_host, credentials, timeout, debug=debug)

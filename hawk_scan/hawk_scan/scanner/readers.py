@@ -1,31 +1,48 @@
 import os
 
+MAX_EXTRACTED_BYTES = 10 * 1024 * 1024  # 10 MB extracted text cap
+MAX_XLSX_ROWS = 50_000
+MAX_PDF_PAGES = 200
+
 
 def read_text(file_path: str) -> str:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     with open(file_path, "rb") as f:
-        return f.read().decode("utf-8", errors="replace")
+        return f.read(MAX_EXTRACTED_BYTES).decode("utf-8", errors="replace")
 
 
 def read_pdf(file_path: str) -> str:
     import warnings
     import logging
+    import threading
     import PyPDF2
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
-    content = ""
+    parts: list[str] = []
+    total = 0
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
-            for page in reader.pages:
-                try:
-                    text = page.extract_text()
-                    if text:
-                        content += text + "\n"
-                except Exception:
+            for i, page in enumerate(reader.pages):
+                if i >= MAX_PDF_PAGES or total >= MAX_EXTRACTED_BYTES:
+                    break
+                result: list[str | None] = [None]
+                def _extract(p=page):
+                    try:
+                        result[0] = p.extract_text()
+                    except Exception:
+                        pass
+                t = threading.Thread(target=_extract)
+                t.daemon = True
+                t.start()
+                t.join(timeout=3)
+                if t.is_alive():
                     continue
-    return content
+                if result[0]:
+                    parts.append(result[0])
+                    total += len(result[0])
+    return "\n".join(parts)
 
 
 def read_docx(file_path: str) -> str:
@@ -39,14 +56,26 @@ def read_xlsx(file_path: str) -> str:
     from openpyxl import load_workbook
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        wb = load_workbook(file_path, data_only=True)
+        wb = load_workbook(file_path, data_only=True, read_only=True)
         parts = []
-        for sheet_name in wb.sheetnames:
-            sheet = wb[sheet_name]
-            for row in sheet.iter_rows():
-                for cell in row:
-                    if cell.value is not None:
-                        parts.append(str(cell.value))
+        total = 0
+        try:
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                row_count = 0
+                for row in sheet.iter_rows():
+                    for cell in row:
+                        if cell.value is not None:
+                            val = str(cell.value)
+                            parts.append(val)
+                            total += len(val)
+                    row_count += 1
+                    if row_count >= MAX_XLSX_ROWS or total >= MAX_EXTRACTED_BYTES:
+                        break
+                if total >= MAX_EXTRACTED_BYTES:
+                    break
+        finally:
+            wb.close()
     return "\n".join(parts)
 
 

@@ -1,8 +1,12 @@
 import os
+import threading
 from hawk_scan.models import FileMetadata, Finding, SkippedFile
 from hawk_scan.remote.transport import Transport
 from hawk_scan.scanner.engine import ScanEngine
 from hawk_scan.scanner.readers import read_file
+
+PER_FILE_TIMEOUT = 10
+SELF_LIMITING_EXTENSIONS = {".pdf"}
 
 
 class ScanOrchestrator:
@@ -29,9 +33,19 @@ class ScanOrchestrator:
                 skipped.append(SkippedFile(file_path=meta.remote_path, reason="Failed to retrieve file (locked or permission denied)"))
                 continue
             try:
-                content = read_file(local_path)
-                results = self._engine.scan_text(content)
-                for result in results:
+                result_holder: list = [None, None]
+                def _read_and_scan(path=local_path):
+                    result_holder[0] = read_file(path)
+                    result_holder[1] = self._engine.scan_text(result_holder[0])
+                t = threading.Thread(target=_read_and_scan)
+                t.daemon = True
+                t.start()
+                timeout = None if meta.extension in SELF_LIMITING_EXTENSIONS else PER_FILE_TIMEOUT
+                t.join(timeout=timeout)
+                if t.is_alive():
+                    skipped.append(SkippedFile(file_path=meta.remote_path, reason=f"Timed out after {PER_FILE_TIMEOUT}s"))
+                    continue
+                for result in (result_holder[1] or []):
                     findings.append(Finding(
                         file_path=meta.remote_path,
                         pattern_name=result["pattern_name"],

@@ -1,4 +1,5 @@
 import os
+import sys
 import base64
 import winrm
 from hawk_scan.models import FileMetadata
@@ -8,10 +9,11 @@ from hawk_scan.remote.transport import Transport, Credentials
 class WinRmTransport(Transport):
     SMALL_FILE_LIMIT = 150_000
 
-    def __init__(self, target_host: str, credentials: Credentials, timeout: int):
+    def __init__(self, target_host: str, credentials: Credentials, timeout: int, debug: bool = False):
         self._host = target_host
         self._creds = credentials
         self._timeout = timeout
+        self._debug = debug
         self._session: winrm.Session | None = None
 
     @property
@@ -39,13 +41,20 @@ class WinRmTransport(Transport):
 
     def is_available(self) -> bool:
         try:
+            if self._debug:
+                print(f"[DEBUG] WinRM: testing http://{self._host}:5985/wsman", file=sys.stderr)
             session = self._get_session()
             result = session.run_ps("Write-Output 'OK'")
+            if self._debug and result.status_code != 0:
+                print(f"[DEBUG] WinRM: test command returned status {result.status_code}", file=sys.stderr)
+                print(f"[DEBUG] WinRM stderr: {result.std_err.decode('utf-8', errors='replace')}", file=sys.stderr)
             return result.status_code == 0
-        except Exception:
+        except Exception as e:
+            if self._debug:
+                print(f"[DEBUG] WinRM: not available — {type(e).__name__}: {e}", file=sys.stderr)
             return False
 
-    def enumerate(self, paths: list[str], exclude_patterns: list[str]) -> list[FileMetadata]:
+    def enumerate(self, paths: list[str], exclude_patterns: list[str], progress_callback=None) -> list[FileMetadata]:
         session = self._get_session()
         results = []
         for path in paths:
@@ -73,7 +82,11 @@ class WinRmTransport(Transport):
                             size_bytes=int(parts[1]) if parts[1].isdigit() else 0,
                             extension=parts[2].lower(),
                         ))
-            except Exception:
+                        if progress_callback:
+                            progress_callback(len(results), parts[0])
+            except Exception as e:
+                if self._debug:
+                    print(f"[DEBUG] WinRM enumerate error for {path}: {type(e).__name__}: {e}", file=sys.stderr)
                 continue
         return results
 
