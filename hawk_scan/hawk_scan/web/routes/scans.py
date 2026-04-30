@@ -1,8 +1,10 @@
 """Scan CRUD routes."""
 
+import asyncio
+import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from hawk_scan.web.crypto import encrypt_credentials
@@ -107,3 +109,60 @@ def delete_scan(scan_id: uuid.UUID, db: Session = Depends(_get_db)):
     db.delete(scan)
     db.commit()
     return Response(status_code=204)
+
+
+@router.websocket("/{scan_id}/progress")
+async def scan_progress(websocket: WebSocket, scan_id: uuid.UUID):
+    # Get a DB session from the app's session factory
+    try:
+        session_factory = websocket.app.state.session_factory
+        db = session_factory()
+    except Exception:
+        await websocket.close(code=4004, reason="Database unavailable")
+        return
+
+    scan = db.get(ScanRecord, scan_id)
+    db.close()
+    if not scan:
+        await websocket.close(code=4004, reason="Scan not found")
+        return
+
+    await websocket.accept()
+
+    if scan.status in ("completed", "failed"):
+        await websocket.send_json({"phase": scan.status})
+        await websocket.close()
+        return
+
+    try:
+        import redis as redis_lib
+        from hawk_scan.web.config import get_settings
+        settings = get_settings()
+        r = redis_lib.Redis.from_url(settings.redis_url)
+        pubsub = r.pubsub()
+        pubsub.subscribe(f"scan:{scan_id}:progress")
+        try:
+            while True:
+                message = pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message["type"] == "message":
+                    data = json.loads(message["data"])
+                    await websocket.send_json(data)
+                    if data.get("phase") in ("completed", "failed"):
+                        break
+                else:
+                    await asyncio.sleep(0.5)
+        finally:
+            pubsub.unsubscribe()
+            pubsub.close()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        try:
+            await websocket.send_json({"phase": "completed"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
