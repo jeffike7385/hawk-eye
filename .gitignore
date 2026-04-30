@@ -1,4 +1,5 @@
 connection.yml
+.superpowers/
 hawk_scan/test_smb.py
 .DS_Store
 data/
