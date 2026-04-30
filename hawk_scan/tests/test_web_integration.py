@@ -38,8 +38,7 @@ async def client(app):
 @pytest.mark.anyio
 async def test_full_scan_lifecycle(client, db_engine):
     # 1. Create a scan
-    with patch("hawk_scan.web.routes.scans.run_scan_task") as mock_task:
-        mock_task.delay = lambda *a, **kw: None
+    with patch("hawk_scan.web.routes.scans._send_scan_task"):
         resp = await client.post("/api/scans", json={
             "target_host": "WKS-TEST",
             "username": "DOMAIN\\admin",

@@ -158,10 +158,7 @@ async def test_delete_scan(client, db_session):
 
 
 async def test_create_scan_queues_task(client):
-    mock_task = MagicMock()
-    mock_task.delay = MagicMock()
-
-    with patch("hawk_scan.web.routes.scans.run_scan_task", mock_task):
+    with patch("hawk_scan.web.routes.scans._send_scan_task") as mock_send:
         resp = await client.post(
             "/api/scans",
             json={
@@ -178,4 +175,4 @@ async def test_create_scan_queues_task(client):
     assert data["scan_user"] == "DOMAIN\\admin"
     assert data["entra_user"] == "anonymous"
     assert "id" in data
-    mock_task.delay.assert_called_once_with(data["id"])
+    mock_send.assert_called_once()

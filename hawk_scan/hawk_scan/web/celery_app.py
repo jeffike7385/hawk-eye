@@ -19,6 +19,8 @@ celery.conf.update(
     worker_concurrency=settings.max_concurrent_scans,
     worker_prefetch_multiplier=1,
     task_acks_late=True,
+    include=["hawk_scan.web.tasks"],
+    beat_schedule_filename="/tmp/celerybeat-schedule",
 )
 
 celery.conf.beat_schedule = {

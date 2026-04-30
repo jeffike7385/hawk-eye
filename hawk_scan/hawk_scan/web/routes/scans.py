@@ -21,8 +21,15 @@ from hawk_scan.web.schemas import (
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
 
-# Will be wired up when Celery is available (Task 6).
-run_scan_task = None
+def _send_scan_task(scan_id, target_host, encrypted_creds, paths, exclude_patterns, max_file_size_mb, redact, transport_type):
+    try:
+        from hawk_scan.web.celery_app import celery
+        celery.send_task("hawk_scan.run_scan", args=[
+            scan_id, target_host, encrypted_creds, paths,
+            exclude_patterns, max_file_size_mb, redact, transport_type,
+        ])
+    except Exception:
+        pass
 
 
 def _get_db():
@@ -50,8 +57,11 @@ def create_scan(body: ScanCreate, db: Session = Depends(_get_db)):
     db.commit()
     db.refresh(scan)
 
-    if run_scan_task is not None:
-        run_scan_task.delay(str(scan.id))
+    _send_scan_task(
+        str(scan.id), body.target_host, encrypted,
+        body.paths, body.exclude_patterns, body.max_file_size_mb,
+        body.redact, body.transport,
+    )
 
     return scan
 
