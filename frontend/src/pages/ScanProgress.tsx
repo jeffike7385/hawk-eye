@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
-import { useWebSocket } from "../hooks/useWebSocket";
 import { ProgressBar } from "../components/ProgressBar";
 import { StatusBadge } from "../components/StatusBadge";
 import type { ScanDetail } from "../types";
@@ -9,24 +8,40 @@ import type { ScanDetail } from "../types";
 export function ScanProgress() {
   const { id } = useParams<{ id: string }>();
   const [scan, setScan] = useState<ScanDetail | null>(null);
-  const { latest, messages } = useWebSocket(id);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (id) api.getScan(id).then(setScan);
+    if (!id) return;
+    let active = true;
+
+    const poll = () => {
+      api.getScan(id)
+        .then((data) => {
+          if (!active) return;
+          setScan(data);
+          if (["queued", "enumerating", "scanning"].includes(data.status)) {
+            setTimeout(poll, 3000);
+          }
+        })
+        .catch((e) => { if (active) setError(String(e)); });
+    };
+    poll();
+
+    return () => { active = false; };
   }, [id]);
 
-  useEffect(() => {
-    if (latest?.phase === "completed" || latest?.phase === "failed") {
-      if (id) api.getScan(id).then(setScan);
-    }
-  }, [latest, id]);
+  if (error) return (
+    <div className="text-center py-12">
+      <p className="text-red-400 mb-4">Failed to load scan</p>
+      <a href="/" className="text-cyan-400 hover:underline">Back to Dashboard</a>
+    </div>
+  );
 
   if (!scan) return <p className="text-gray-400">Loading...</p>;
 
   const isActive = ["queued", "enumerating", "scanning"].includes(scan.status);
-  const phase = latest?.phase || scan.status;
-  const current = latest?.current || 0;
-  const total = latest?.total || scan.files_found || 0;
+  const current = scan.files_scanned || 0;
+  const total = scan.files_found || 0;
 
   if (!isActive) {
     return (
@@ -73,34 +88,27 @@ export function ScanProgress() {
           <h1 className="text-2xl font-bold">Scanning {scan.target_host}</h1>
           <p className="text-gray-500 text-sm">Started by {scan.entra_user}</p>
         </div>
+        <StatusBadge status={scan.status} />
       </div>
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-gray-900 rounded-lg p-4 text-center">
           <div className="text-cyan-400 text-xs uppercase">Status</div>
-          <div className="font-bold capitalize">{phase}</div>
+          <div className="font-bold capitalize">{scan.status}</div>
         </div>
         <div className="bg-gray-900 rounded-lg p-4 text-center">
           <div className="text-cyan-400 text-xs uppercase">Progress</div>
           <div className="font-bold">{current} / {total} files</div>
         </div>
         <div className="bg-gray-900 rounded-lg p-4 text-center">
-          <div className="text-cyan-400 text-xs uppercase">Findings</div>
-          <div className="font-bold">{latest?.findings_count ?? "—"}</div>
+          <div className="text-cyan-400 text-xs uppercase">Files Found</div>
+          <div className="font-bold">{scan.files_found ?? "—"}</div>
         </div>
       </div>
-      <ProgressBar current={current} total={total} />
-      <div className="mt-6">
-        <h2 className="font-bold mb-2">Live Activity</h2>
-        <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs max-h-60 overflow-y-auto space-y-1">
-          {messages.slice(-20).map((msg, i) => (
-            <div key={i} className="text-gray-400">
-              {msg.phase === "scanning" && msg.filename && `Scanning ${msg.filename}...`}
-              {msg.phase === "enumerating" && `Enumerating... ${msg.files_found} files found`}
-              {msg.phase === "completed" && <span className="text-green-400">Scan complete</span>}
-              {msg.phase === "failed" && <span className="text-red-400">Failed: {msg.error}</span>}
-            </div>
-          ))}
-        </div>
+      {total > 0 && <ProgressBar current={current} total={total} />}
+      <div className="mt-6 bg-gray-900 rounded-lg p-4 text-sm text-gray-400">
+        <p>Polling for updates every 3 seconds...</p>
+        {scan.status === "enumerating" && <p className="mt-2">Enumerating remote files. This can take several minutes for large directory trees.</p>}
+        {scan.status === "scanning" && <p className="mt-2">Scanning {current} of {total} files for PII patterns.</p>}
       </div>
     </div>
   );
