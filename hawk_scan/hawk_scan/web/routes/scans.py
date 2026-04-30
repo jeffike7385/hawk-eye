@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from hawk_scan.web.crypto import encrypt_credentials
@@ -99,6 +101,20 @@ def get_scan(scan_id: uuid.UUID, db: Session = Depends(_get_db)):
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
     return scan
+
+
+@router.get("/{scan_id}/report")
+def download_report(scan_id: uuid.UUID, db: Session = Depends(_get_db)):
+    scan = db.get(ScanRecord, scan_id)
+    if not scan:
+        raise HTTPException(404, "Scan not found")
+    if not scan.report_path or not os.path.exists(scan.report_path):
+        raise HTTPException(404, "Report not available")
+    return FileResponse(
+        scan.report_path,
+        media_type="text/html",
+        filename=f"hawk_scan_{scan.target_host}_{scan_id}.html",
+    )
 
 
 @router.delete("/{scan_id}", status_code=204)
