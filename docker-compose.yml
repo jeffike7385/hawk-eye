@@ -6,7 +6,7 @@ services:
     ports:
       - "443:443"
     volumes:
-      - ./certs:/etc/nginx/certs:ro
+      - /Users/jeickelberger/Repositories/Docker/AP-Approvals-POC/certs:/etc/nginx/certs:ro
     depends_on:
       - api
 
