@@ -28,15 +28,22 @@ class ScanOrchestrator:
             if meta.size_bytes > self._max_bytes:
                 skipped.append(SkippedFile(file_path=meta.remote_path, reason=f"File size ({meta.size_bytes // (1024*1024)}MB) exceeds limit"))
                 continue
-            local_path = self._transport.retrieve(meta.remote_path, temp_dir)
+            try:
+                local_path = self._transport.retrieve(meta.remote_path, temp_dir)
+            except Exception as e:
+                skipped.append(SkippedFile(file_path=meta.remote_path, reason=str(e)))
+                continue
             if local_path is None:
-                skipped.append(SkippedFile(file_path=meta.remote_path, reason="Failed to retrieve file (locked or permission denied)"))
+                skipped.append(SkippedFile(file_path=meta.remote_path, reason="Failed to retrieve file"))
                 continue
             try:
-                result_holder: list = [None, None]
+                result_holder: list = [None, None, None]
                 def _read_and_scan(path=local_path):
-                    result_holder[0] = read_file(path)
-                    result_holder[1] = self._engine.scan_text(result_holder[0])
+                    try:
+                        result_holder[0] = read_file(path)
+                        result_holder[1] = self._engine.scan_text(result_holder[0])
+                    except Exception as exc:
+                        result_holder[2] = exc
                 t = threading.Thread(target=_read_and_scan)
                 t.daemon = True
                 t.start()
@@ -44,6 +51,9 @@ class ScanOrchestrator:
                 t.join(timeout=timeout)
                 if t.is_alive():
                     skipped.append(SkippedFile(file_path=meta.remote_path, reason=f"Timed out after {PER_FILE_TIMEOUT}s"))
+                    continue
+                if result_holder[2] is not None:
+                    skipped.append(SkippedFile(file_path=meta.remote_path, reason=f"Error reading file: {result_holder[2]}"))
                     continue
                 for result in (result_holder[1] or []):
                     findings.append(Finding(

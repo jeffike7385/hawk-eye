@@ -53,10 +53,14 @@ def read_docx(file_path: str) -> str:
 
 def read_xlsx(file_path: str) -> str:
     import warnings
+    import zipfile
     from openpyxl import load_workbook
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        wb = load_workbook(file_path, data_only=True, read_only=True)
+        try:
+            wb = load_workbook(file_path, data_only=True, read_only=True)
+        except (zipfile.BadZipFile, KeyError, Exception) as e:
+            raise ValueError(f"Not a valid xlsx file: {e}") from e
         parts = []
         total = 0
         try:

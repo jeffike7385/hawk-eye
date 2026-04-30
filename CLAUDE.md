@@ -36,7 +36,7 @@ Four-layer design with clean separation:
 
 **`hawk_scan/remote/`** — Transport abstraction for remote file access
 - `transport.py` — `Transport` ABC, `Credentials` dataclass, `negotiate_transport()` auto-negotiation (WinRM primary, SMB fallback)
-- `winrm_transport.py` — PowerShell remoting via `pywinrm` for file enumeration (`Get-ChildItem`) and base64 retrieval
+- `winrm_transport.py` — PowerShell remoting via `pypsrp` (PSRP/SPNEGO) for file enumeration (`Get-ChildItem`) and base64 retrieval
 - `smb_transport.py` — Admin share access (`\\host\C$`) via `smbprotocol` for enumeration and file copy
 
 **`hawk_scan/scanner/`** — Content analysis (no knowledge of where files come from)

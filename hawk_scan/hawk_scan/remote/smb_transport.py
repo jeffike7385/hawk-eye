@@ -8,6 +8,18 @@ from hawk_scan.models import FileMetadata
 from hawk_scan.remote.transport import Transport, Credentials
 from hawk_scan.scanner.readers import SCANNABLE_EXTENSIONS
 
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+FILE_ATTRIBUTE_OFFLINE = 0x1000
+FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x400000
+FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x40000
+CLOUD_STUB_ATTRS = FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_RECALL_ON_OPEN
+
+PROFILE_JUNCTIONS = frozenset({
+    "Application Data", "Cookies", "Local Settings", "My Documents",
+    "NetHood", "PrintHood", "Recent", "SendTo", "Start Menu", "Templates",
+    "My Music", "My Pictures", "My Videos", "Default User",
+})
+
 
 class SmbTransport(Transport):
     def __init__(self, target_host: str, credentials: Credentials, timeout: int, debug: bool = False):
@@ -64,6 +76,8 @@ class SmbTransport(Transport):
                 if entry.is_symlink():
                     continue
                 if entry.is_dir():
+                    if entry.name in PROFILE_JUNCTIONS:
+                        continue
                     full = ntpath.join(unc_path, entry.name)
                     if any(p in full for p in exclude_patterns if not p.startswith("*")):
                         continue
@@ -78,6 +92,10 @@ class SmbTransport(Transport):
                     try:
                         info = entry.stat()
                         size = info.st_size
+                        if self._debug:
+                            attrs = getattr(info, "st_file_attributes", 0) or 0
+                            if attrs & CLOUD_STUB_ATTRS:
+                                print(f"[DEBUG] Cloud-attributed file (may be stub): {full_path} (attrs=0x{attrs:X})", file=sys.stderr)
                     except Exception:
                         size = 0
                     results.append(FileMetadata(
@@ -107,17 +125,26 @@ class SmbTransport(Transport):
         return results
 
     def retrieve(self, remote_path: str, local_dir: str) -> str | None:
+        import uuid
         self._ensure_session()
         filename = ntpath.basename(remote_path)
-        local_path = os.path.join(local_dir, filename)
+        _, ext = os.path.splitext(filename)
+        local_path = os.path.join(local_dir, f"{uuid.uuid4().hex}{ext}")
         try:
             with smbclient.open_file(remote_path, mode="rb") as remote_f:
                 data = remote_f.read()
-            with open(local_path, "wb") as local_f:
-                local_f.write(data)
-            return local_path
-        except Exception:
-            return None
+        except Exception as e:
+            if self._debug:
+                print(f"[DEBUG] SMB retrieve failed for {remote_path}: {type(e).__name__}: {e}", file=sys.stderr)
+            err_str = str(e)
+            if "0xc000cf01" in err_str:
+                raise OSError("Cloud file not synced — OneDrive reports this file as available but it is not hydrated locally") from e
+            if "0xc0000022" in err_str:
+                raise OSError("Access denied") from e
+            raise OSError(f"SMB read failed: {type(e).__name__}: {e}") from e
+        with open(local_path, "wb") as local_f:
+            local_f.write(data)
+        return local_path
 
     def detect_volumes(self) -> list[str]:
         self._ensure_session()

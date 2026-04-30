@@ -21,7 +21,7 @@ hawk_scan WORKSTATION-01
 ```
 
 This will:
-1. Try WinRM first, fall back to SMB if WinRM is unavailable
+1. Try SMB first (only reads files physically on disk), fall back to WinRM if SMB is unavailable
 2. Use your current domain credentials (Kerberos)
 3. Scan `C:\Users` and any other local drives detected on the target
 4. Skip AppData, Windows, Program Files, and other system directories
@@ -66,7 +66,7 @@ The machine to scan. Must be network-reachable from the admin workstation. For S
 
 | Flag | Description |
 |------|-------------|
-| *(none)* | Uses current user's domain credentials via Kerberos |
+| *(none)* | Uses current user's domain credentials via Kerberos/SPNEGO |
 | `--username DOMAIN\user` | Authenticate with explicit NTLM credentials. Password is prompted securely. |
 
 The `--password` flag exists but is hidden and discouraged. Use the interactive prompt instead.
@@ -134,9 +134,11 @@ Use redaction when reports will be shared with staff or management who don't nee
 
 **SMB** connects to `\\hostname\C$` using admin share access. Works from any OS (macOS, Linux, Windows). Slower enumeration (each directory is a network round-trip) but universally available if you have admin rights on the target.
 
-**WinRM** executes PowerShell commands on the target machine. Faster enumeration (runs `Get-ChildItem` remotely) but requires WinRM to be enabled on the target (typically via GPO in domain environments). Files are retrieved via base64 over the WinRM channel.
+**WinRM** executes PowerShell commands on the target machine via PSRP (PowerShell Remoting Protocol). Faster enumeration (runs `Get-ChildItem` remotely) and can read files that are inaccessible via SMB (e.g., OneDrive cloud files). Requires WinRM to be enabled on the target (typically via GPO in domain environments). Files are retrieved via base64 over the WinRM channel. Uses SPNEGO/Negotiate auth (Kerberos) for current-user auth, or NTLM for explicit credentials. Use the target's FQDN (e.g., `WORKSTATION-01.domain.local`) for reliable Kerberos SPN resolution.
 
 **Auto-negotiation** tries WinRM first, falls back to SMB. The transport used is displayed in the CLI output and recorded in the report.
+
+**OneDrive considerations:** Files in OneDrive folders that are marked "always available" but not actually hydrated locally will fail to read via SMB (`STATUS_CLOUD_FILE_NOT_IN_SYNC`). This is reported as "Cloud file not synced" in the skip list. WinRM can read these files because PowerShell commands run through the local file system filter driver. If your environment uses OneDrive folder redirection, prefer WinRM or use `--transport winrm` to ensure full coverage.
 
 ### Configuration File
 
@@ -186,7 +188,7 @@ See [Custom Scan Profiles](#custom-scan-profiles) below for details.
 
 | Flag | Description |
 |------|-------------|
-| `--debug` | Print verbose output: UNC paths, session registration, scandir errors |
+| `--debug` | Print verbose output: UNC paths, session details, transport errors, WinRM negotiation, cloud file attributes |
 | `--version` | Print version and exit |
 
 ## What Gets Scanned
@@ -361,6 +363,19 @@ The findings table supports:
 - Verify you have admin rights on the target (`net use \\HOSTNAME\C$` from a Windows admin workstation)
 - If using WinRM, verify it's enabled: `Test-WSMan HOSTNAME` from PowerShell
 - Try forcing SMB: `--transport smb`
+
+### WinRM auth fails / "credentials rejected"
+
+- Use the target's FQDN for Kerberos: `hawk_scan WORKSTATION-01.domain.local`
+- Verify native WinRM works: `Invoke-Command -ComputerName HOSTNAME -ScriptBlock { Write-Output OK }`
+- If your environment only allows Kerberos (no NTLM), don't pass `--username` — let the tool use your current domain session
+- Check `--debug` output for the specific auth error
+
+### "Cloud file not synced" skips
+
+OneDrive files showing as "always available" in Explorer may not be truly hydrated on disk. The SMB admin share cannot trigger OneDrive hydration. Options:
+- Use `--transport winrm` to read files through the local file system filter driver
+- Investigate the user's OneDrive sync health — files marked as synced but returning `STATUS_CLOUD_FILE_NOT_IN_SYNC` indicate a broken sync state
 
 ### Scan takes a long time
 

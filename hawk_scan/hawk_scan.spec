@@ -61,7 +61,10 @@ a = Analysis(
         ('config.yml.sample', '.'),
     ] + tesseract_datas,
     hiddenimports=[
-        'winrm',
+        'pypsrp',
+        'pypsrp.powershell',
+        'pypsrp.wsman',
+        'winkerberos',
         'smbprotocol',
         'pytesseract',
         'PIL',

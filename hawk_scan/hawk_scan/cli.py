@@ -120,8 +120,8 @@ def main():
     temp_dir = tempfile.mkdtemp(prefix="hawk_scan_")
     try:
         with Progress(
-            SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-            BarColumn(), TextColumn("{task.completed}/{task.total} files"), console=console,
+            SpinnerColumn(), BarColumn(), TextColumn("{task.completed}/{task.total} files"),
+            TextColumn("[progress.description]{task.description}"), console=console,
         ) as progress:
             task = progress.add_task("Scanning...", total=len(file_list))
 

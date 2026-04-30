@@ -137,7 +137,7 @@ try {
 Write-Host "==> Verifying critical imports..."
 $importCheck = @"
 import sys
-mods = ['winrm','smbprotocol','pytesseract','PIL','cv2','numpy','PyPDF2','docx','openpyxl','pptx','yaml','rich','jinja2','PyInstaller']
+mods = ['pypsrp','smbprotocol','pytesseract','PIL','cv2','numpy','PyPDF2','docx','openpyxl','pptx','yaml','rich','jinja2','PyInstaller']
 failed = []
 for m in mods:
     try:
