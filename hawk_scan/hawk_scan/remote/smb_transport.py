@@ -137,8 +137,10 @@ class SmbTransport(Transport):
             if self._debug:
                 print(f"[DEBUG] SMB retrieve failed for {remote_path}: {type(e).__name__}: {e}", file=sys.stderr)
             err_str = str(e)
-            if "0xc000cf01" in err_str or "0xc000cf1d" in err_str:
-                raise OSError("Cloud file not synced — OneDrive placeholder not hydrated locally") from e
+            if "0xc000cf01" in err_str:
+                raise OSError("Cloud file not synced (STATUS_CLOUD_FILE_PROVIDER_NOT_RUNNING)") from e
+            if "0xc000cf1d" in err_str:
+                raise OSError("Cloud file provider terminated (STATUS_CLOUD_FILE_PROVIDER_TERMINATED)") from e
             if "0xc0000022" in err_str:
                 raise OSError("Access denied") from e
             raise OSError(f"SMB read failed: {type(e).__name__}: {e}") from e
