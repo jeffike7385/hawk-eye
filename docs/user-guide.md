@@ -339,6 +339,10 @@ The report's **Priority Directories for Remediation** section ranks directories 
 
 Directories with the highest scores should be remediated first. The visual bar shows the severity mix at a glance.
 
+### Navigating Findings
+
+File paths in the findings table are hyperlinked — click the directory portion to open the folder directly in File Explorer via the admin share. This makes it easy to inspect or remediate flagged files without manually navigating to them.
+
 ### Filtering and Sorting
 
 The findings table supports:

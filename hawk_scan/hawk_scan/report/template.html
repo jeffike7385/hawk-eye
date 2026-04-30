@@ -153,7 +153,7 @@
     <tr data-severity="{{ f.severity }}" data-category="{{ f.category }}">
       <td>{{ loop.index }}</td>
       <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
-      <td>{{ f.file_path }}</td>
+      <td>{{ f.file_path | dir_link }}</td>
       <td>{{ f.pattern_name }}</td>
       <td>{{ f.category }}</td>
       <td>{{ f.match_count }}</td>

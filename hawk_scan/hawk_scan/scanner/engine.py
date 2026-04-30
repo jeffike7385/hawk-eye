@@ -137,6 +137,20 @@ class ScanEngine:
                 continue
 
             fp = compound["config"]
+
+            confidence = "high"
+            context_keywords = fp.get("context_keywords")
+            if context_keywords:
+                distance = fp.get("context_distance", DEFAULT_CONTEXT_DISTANCE)
+                has_context = False
+                for part_matches in all_matches.values():
+                    if any(_has_nearby_keyword(content, m, context_keywords, distance) for m in part_matches):
+                        has_context = True
+                        break
+                confidence = "high" if has_context else "low"
+                if not has_context and fp.get("require_context", False):
+                    continue
+
             combined = []
             for part_name, matches in all_matches.items():
                 for m in matches:
@@ -155,7 +169,7 @@ class ScanEngine:
                 "sample_text": sample,
                 "severity": fp.get("severity", "high"),
                 "category": fp.get("category", "pii"),
-                "confidence": "high",
+                "confidence": confidence,
             })
 
         return results

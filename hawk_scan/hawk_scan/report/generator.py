@@ -3,6 +3,7 @@ import json
 import ntpath
 from collections import defaultdict
 from dataclasses import asdict
+from markupsafe import Markup, escape as markup_escape
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from hawk_scan import __version__
 from hawk_scan.models import ScanReport
@@ -47,10 +48,17 @@ def _directory_priorities(report: ScanReport) -> list[dict]:
 
 def generate_html_report(report: ScanReport, output_path: str) -> None:
     template_dir = os.path.join(os.path.dirname(__file__))
+    def _dir_link(unc_path):
+        parent = ntpath.dirname(unc_path)
+        filename = ntpath.basename(unc_path)
+        file_url = "file:///" + parent.replace("\\", "/")
+        return Markup(f'<a href="{file_url}" title="Open folder">{markup_escape(parent)}</a>\\{markup_escape(filename)}')
+
     env = Environment(
         loader=FileSystemLoader(template_dir),
         autoescape=select_autoescape(["html"]),
     )
+    env.filters["dir_link"] = _dir_link
     template = env.get_template("template.html")
     html = template.render(
         report=report,

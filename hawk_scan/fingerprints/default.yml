@@ -25,6 +25,7 @@ SSN No Dashes:
   min_matches: 3
   context_keywords: ["social", "security", "ssn", "ssns", "ssid", "tax id", "taxpayer"]
   context_distance: 200
+  require_context: true
 
 # === Credit Card Numbers ===
 # Luhn checksum validation eliminates most false positives
@@ -55,7 +56,9 @@ Bank Account with Routing Number:
   require_all:
     routing_number: "\\b(?:0[1-9]|[1-2]\\d|3[0-2])\\d{7}\\b"
     account_number: "\\b\\d{8,17}\\b"
-  context_keywords: ["check", "account", "acct", "bank", "routing", "savings", "debit", "deposit"]
+  context_keywords: ["check", "account", "acct", "bank", "routing", "savings", "debit", "deposit", "aba", "wire"]
+  context_distance: 200
+  require_context: true
 
 # === US Passport ===
 
@@ -63,9 +66,10 @@ US Passport Number:
   pattern: "\\b[A-Z]\\d{8}\\b"
   severity: high
   category: pii
-  min_matches: 2
+  min_matches: 3
   context_keywords: ["passport", "travel", "document", "united states", "us passport"]
   context_distance: 200
+  require_context: true
 
 # === Tax IDs ===
 
