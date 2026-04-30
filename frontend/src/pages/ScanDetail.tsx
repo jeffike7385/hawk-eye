@@ -8,12 +8,20 @@ import { ScanProgress } from "./ScanProgress";
 export function ScanDetail() {
   const { id } = useParams<{ id: string }>();
   const [scan, setScan] = useState<ScanDetailType | null>(null);
+  const [error, setError] = useState("");
   const [severityFilter, setSeverityFilter] = useState("");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    if (id) api.getScan(id).then(setScan);
+    if (id) api.getScan(id).then(setScan).catch((e) => setError(String(e)));
   }, [id]);
+
+  if (error) return (
+    <div className="text-center py-12">
+      <p className="text-red-400 mb-4">Scan not found</p>
+      <a href="/" className="text-cyan-400 hover:underline">Back to Dashboard</a>
+    </div>
+  );
 
   if (!scan) return <p className="text-gray-400">Loading...</p>;
 

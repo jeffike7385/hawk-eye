@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir ./hawk_scan[web]
 USER hawkscan
 
 EXPOSE 8000
-CMD ["uvicorn", "hawk_scan.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "hawk_scan.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
