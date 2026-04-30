@@ -108,10 +108,14 @@ def _execute_scan(
         orchestrator = ScanOrchestrator(transport, scan_engine, max_file_size_mb=max_file_size_mb)
 
         # 7. Enumerate files with progress callback
+        import time as _time
+        _last_db_update = [_time.monotonic()]
+
         def enum_progress(count, filename):
-            if count % 5 == 0:
+            now = _time.monotonic()
+            if now - _last_db_update[0] >= 2.0:
                 _update_scan(files_found=count)
-            _publish_progress(scan_id, {"phase": "enumerating", "files_found": count})
+                _last_db_update[0] = now
 
         file_list = orchestrator.enumerate(paths, exclude_patterns, progress_callback=enum_progress)
 
@@ -121,12 +125,14 @@ def _execute_scan(
 
         # 9. Scan files with progress callback
         scan_count = [0]
+        _last_scan_update = [_time.monotonic()]
         with tempfile.TemporaryDirectory() as temp_dir:
             def scan_progress(path):
                 scan_count[0] += 1
-                if scan_count[0] % 10 == 0:
+                now = _time.monotonic()
+                if now - _last_scan_update[0] >= 2.0:
                     _update_scan(files_scanned=scan_count[0])
-                _publish_progress(scan_id, {"phase": "scanning", "current_file": path})
+                    _last_scan_update[0] = now
 
             findings, skipped = orchestrator.scan(file_list, temp_dir, progress_callback=scan_progress)
 
