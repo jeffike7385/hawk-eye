@@ -1,10 +1,18 @@
 """Scan execution task — runs inside Celery worker or directly for testing."""
 
 import json
+import logging
 import os
 import tempfile
 import uuid
+import warnings
 from datetime import datetime, timezone
+
+logging.getLogger("smbclient").setLevel(logging.WARNING)
+logging.getLogger("smbprotocol").setLevel(logging.WARNING)
+logging.getLogger("spnego").setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", module="openpyxl")
+warnings.filterwarnings("ignore", module="PyPDF2")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -101,7 +109,7 @@ def _execute_scan(
 
         # 7. Enumerate files with progress callback
         def enum_progress(count, filename):
-            if count % 50 == 0:
+            if count % 5 == 0:
                 _update_scan(files_found=count)
             _publish_progress(scan_id, {"phase": "enumerating", "files_found": count})
 
