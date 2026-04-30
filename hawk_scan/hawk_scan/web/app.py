@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from hawk_scan.web.config import get_settings
 from hawk_scan.web.db import Base
 from hawk_scan.web.routes import scans as scans_module
+from hawk_scan.web.routes import auth as auth_router
 
 
 def create_app(testing: bool = False, db_engine=None) -> FastAPI:
@@ -35,5 +36,8 @@ def create_app(testing: bool = False, db_engine=None) -> FastAPI:
 
     app.dependency_overrides[scans_module._get_db] = get_db
     app.include_router(scans_module.router)
+    app.include_router(auth_router.router)
+    if testing:
+        app.state._testing = True
 
     return app
