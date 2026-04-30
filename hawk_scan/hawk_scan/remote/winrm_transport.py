@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import base64
@@ -50,7 +51,16 @@ class WinRmTransport(Transport):
         pool = self._get_pool()
         ps = PowerShell(pool)
         ps.add_script(script)
-        output = ps.invoke()
+        _original_stdout = sys.stdout
+        _capture = io.StringIO()
+        sys.stdout = _capture
+        try:
+            output = ps.invoke()
+        finally:
+            sys.stdout = _original_stdout
+            captured = _capture.getvalue()
+            if captured.strip() and self._debug:
+                print(f"[DEBUG] WinRM stdout: {captured.strip()[:200]}", file=sys.stderr)
         had_errors = ps.had_errors
         streams_err = [str(e) for e in ps.streams.error]
         return output, streams_err, had_errors
@@ -80,14 +90,16 @@ class WinRmTransport(Transport):
             ps_script = (
                 f"Get-ChildItem -Path '{path}' -Recurse -File -ErrorAction SilentlyContinue"
                 f"{exclude_clauses}"
-                " | ForEach-Object { \"$($_.FullName)|$($_.Length)|$($_.Extension)\" }"
+                " | ForEach-Object { $_.FullName + '|' + $_.Length + '|' + $_.Extension }"
             )
             try:
                 output, errors, had_errors = self._run_ps(ps_script)
                 if had_errors and self._debug:
                     print(f"[DEBUG] WinRM enumerate errors for {path}: {errors}", file=sys.stderr)
                 for item in output:
-                    line = str(item).strip()
+                    line = str(item).strip().strip('"')
+                    if not line:
+                        continue
                     parts = line.split("|")
                     if len(parts) == 3:
                         ext = parts[2].lower()

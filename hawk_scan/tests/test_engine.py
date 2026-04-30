@@ -121,6 +121,60 @@ def test_min_matches_passes_at_threshold():
     assert results[0]["match_count"] == 3
 
 
+def test_require_context_suppresses_without_keywords():
+    fingerprints = {
+        "Confidential": {
+            "pattern": "(?i)\\bCONFIDENTIAL\\b",
+            "severity": "high",
+            "category": "classification",
+            "context_keywords": ["classified", "handling"],
+            "require_context": True,
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    results = engine.scan_text("This email is confidential")
+    assert results == []
+
+    results = engine.scan_text("CONFIDENTIAL — classified handling instructions")
+    assert len(results) == 1
+    assert results[0]["confidence"] == "high"
+
+
+def test_proximity_context_keywords():
+    fingerprints = {
+        "SSN": {
+            "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            "severity": "high",
+            "category": "pii",
+            "context_keywords": ["ssn", "social security"],
+            "context_distance": 50,
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    near = engine.scan_text("SSN: 123-45-6789")
+    assert near[0]["confidence"] == "high"
+
+    far = engine.scan_text("social security" + (" " * 200) + "123-45-6789")
+    assert far[0]["confidence"] == "low"
+
+
+def test_luhn_validator():
+    fingerprints = {
+        "CC": {
+            "pattern": "\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b",
+            "severity": "high",
+            "category": "pii",
+            "validator": "luhn",
+        },
+    }
+    engine = ScanEngine(fingerprints, redact=False)
+    valid = engine.scan_text("card: 4532015112830366")
+    assert len(valid) == 1
+
+    invalid = engine.scan_text("number: 1234567890123456")
+    assert invalid == []
+
+
 def test_min_matches_defaults_to_one():
     fingerprints = {
         "Email": {

@@ -3,45 +3,51 @@
 # min_matches: only flag if this many matches found in a single file
 # require_all: compound rule — all sub-patterns must match in the same file
 # context_keywords: boosts confidence when these words appear near matches
+# require_context: suppress findings entirely if no context keyword is nearby
+# context_distance: max characters between match and context keyword (default 200)
+# validator: run a validation function on each match (e.g., "luhn" for credit cards)
 
 # === Social Security Numbers ===
 # Only flag files with 3+ SSNs (bulk exposure, not a stray number)
 
 SSN:
-  pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+  pattern: "\\b(?!000|666|9\\d{2})\\d{3}-(?!00)\\d{2}-(?!0000)\\d{4}\\b"
   severity: high
   category: pii
   min_matches: 3
-  context_keywords: ["ssn", "social security", "tax id", "taxpayer"]
+  context_keywords: ["social", "security", "ssn", "ssns", "ssid", "tax id", "taxpayer"]
+  context_distance: 200
 
 SSN No Dashes:
   pattern: "\\b(?!000|666|9\\d{2})\\d{3}(?!00)\\d{2}(?!0000)\\d{4}\\b"
   severity: high
   category: pii
   min_matches: 3
-  context_keywords: ["ssn", "social security", "tax id", "taxpayer"]
+  context_keywords: ["social", "security", "ssn", "ssns", "ssid", "tax id", "taxpayer"]
+  context_distance: 200
 
 # === Credit Card Numbers ===
-# Only flag files with 10+ (a list/database extract, not a stray number)
+# Luhn checksum validation eliminates most false positives
 
 Credit Card Number:
   pattern: "\\b(?:4\\d{3}|5[1-5]\\d{2}|3[47]\\d{2}|6(?:011|5\\d{2}))[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b"
   severity: high
   category: pii
-  min_matches: 10
+  min_matches: 3
+  validator: luhn
+  context_keywords: ["credit", "card", "visa", "mastercard", "cc", "amex", "discover", "jcb", "diners", "payment"]
 
 # === Driver License Numbers ===
-# Only flag files with 10+ (a list, not isolated)
 
 Driver License:
   pattern: "\\b[A-Z]\\d{6,8}\\b"
   severity: medium
   category: pii
   min_matches: 10
-  context_keywords: ["driver", "license", "licence", "DL", "CDL"]
+  context_keywords: ["driver", "license", "licence", "permit", "lic", "identification", "driving", "cdl", "dl"]
+  context_distance: 200
 
 # === Bank Account + Routing Number (co-occurrence) ===
-# Only flags when BOTH appear in the same file
 
 Bank Account with Routing Number:
   severity: high
@@ -49,6 +55,7 @@ Bank Account with Routing Number:
   require_all:
     routing_number: "\\b(?:0[1-9]|[1-2]\\d|3[0-2])\\d{7}\\b"
     account_number: "\\b\\d{8,17}\\b"
+  context_keywords: ["check", "account", "acct", "bank", "routing", "savings", "debit", "deposit"]
 
 # === US Passport ===
 
@@ -57,7 +64,8 @@ US Passport Number:
   severity: high
   category: pii
   min_matches: 2
-  context_keywords: ["passport", "travel document"]
+  context_keywords: ["passport", "travel", "document", "united states", "us passport"]
+  context_distance: 200
 
 # === Tax IDs ===
 
@@ -66,17 +74,18 @@ ITIN:
   severity: high
   category: pii
   min_matches: 2
-  context_keywords: ["itin", "taxpayer", "tax"]
+  context_keywords: ["itin", "individual", "taxpayer", "tax", "payer", "taxid", "tin"]
+  context_distance: 200
 
 EIN:
   pattern: "\\b\\d{2}-\\d{7}\\b"
   severity: medium
   category: pii
   min_matches: 3
-  context_keywords: ["ein", "employer", "federal tax", "fein"]
+  context_keywords: ["ein", "employer", "federal tax", "fein", "taxid"]
+  context_distance: 200
 
 # === Bulk Email Exposure ===
-# Only flag files with 10+ emails (a contact list, not signatures)
 
 Email:
   pattern: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b"
@@ -90,20 +99,34 @@ Classification - Confidential:
   pattern: "(?i)\\b(CONFIDENTIAL|STRICTLY CONFIDENTIAL)\\b"
   severity: high
   category: classification
+  min_matches: 2
+  context_keywords: ["classified", "classification", "handling", "distribution", "marking", "caveat", "declassify", "unclassified"]
+  require_context: true
+  context_distance: 300
 
 Classification - Secret:
   pattern: "(?i)\\bSECRET\\b"
   severity: high
   category: classification
-  context_keywords: ["classified", "classification", "handling", "distribution"]
+  min_matches: 2
+  context_keywords: ["classified", "classification", "handling", "distribution", "marking", "caveat", "declassify", "unclassified"]
+  require_context: true
+  context_distance: 300
 
 Classification - Restricted:
   pattern: "(?i)\\bRESTRICTED\\b"
   severity: medium
   category: classification
-  context_keywords: ["classified", "classification", "handling", "distribution"]
+  min_matches: 2
+  context_keywords: ["classified", "classification", "handling", "distribution", "marking", "caveat", "declassify", "unclassified"]
+  require_context: true
+  context_distance: 300
 
 Classification - Internal Use Only:
   pattern: "(?i)\\bINTERNAL USE(\\s+ONLY)?\\b"
   severity: medium
   category: classification
+  min_matches: 2
+  context_keywords: ["classified", "classification", "handling", "distribution", "marking", "internal only"]
+  require_context: true
+  context_distance: 300
