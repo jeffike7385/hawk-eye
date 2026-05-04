@@ -51,7 +51,11 @@ def generate_html_report(report: ScanReport, output_path: str) -> None:
     def _dir_link(unc_path):
         parent = ntpath.dirname(unc_path)
         filename = ntpath.basename(unc_path)
-        file_url = "file:///" + parent.replace("\\", "/")
+        normalized = parent.replace("\\", "/")
+        if normalized.startswith("//"):
+            file_url = "file:" + normalized
+        else:
+            file_url = "file:///" + normalized
         return Markup(f'<a href="{file_url}" title="Open folder">{markup_escape(parent)}</a>\\{markup_escape(filename)}')
 
     env = Environment(
