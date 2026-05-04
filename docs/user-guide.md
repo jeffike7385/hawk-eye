@@ -10,11 +10,12 @@ Hawk Scan remotely scans Windows endpoints for personally identifiable informati
 
 ```
 hawk_scan <target_hostname> [options]
+hawk_scan --local [options]
 ```
 
-The only required argument is the target machine's hostname or IP address. Everything else has sensible defaults.
+The target hostname is required for remote scans. For local scans, use `--local` instead.
 
-### Minimal Scan
+### Minimal Remote Scan
 
 ```bash
 hawk_scan WORKSTATION-01
@@ -26,6 +27,32 @@ This will:
 3. Scan `C:\Users` and any other local drives detected on the target
 4. Skip AppData, Windows, Program Files, and other system directories
 5. Generate an HTML report in the current directory
+
+### Local Scan
+
+```bash
+hawk_scan --local
+```
+
+Scans the local machine's filesystem directly — no SMB or WinRM connection. Files are read from disk without any network overhead, making this significantly faster than remote scanning (~instant per file vs ~1s/file over SMB loopback).
+
+Use this when:
+- The laptop is off-site (VPN, home network) and unreachable via SMB/WinRM
+- A tech has copied `hawk_scan.exe` to the target machine and is running it locally
+- You want the fastest possible scan of the current machine
+
+```bash
+# Scan local machine with specific paths
+hawk_scan --local --paths 'C:\Users\jsmith\Documents' 'C:\Users\jsmith\Desktop'
+
+# Local scan with redaction
+hawk_scan --local --redact
+
+# Local scan targeting localhost explicitly (auto-detected)
+hawk_scan localhost
+```
+
+Hawk Scan auto-detects when the target is the local machine (`localhost`, `127.0.0.1`, or the machine's own hostname) and switches to local mode automatically.
 
 ### Scan with Explicit Credentials
 
@@ -131,12 +158,16 @@ Use redaction when reports will be shared with staff or management who don't nee
 |------|-------------|---------|
 | `--transport smb` | Force SMB admin shares | Auto-negotiate |
 | `--transport winrm` | Force WinRM (PowerShell remoting) | Auto-negotiate |
+| `--transport local` | Force local filesystem (no network) | Auto for localhost |
+| `--local` | Shortcut for local mode (no target required) | — |
+
+**Local** reads files directly from the local filesystem using `os.scandir()`. No network connection, no admin shares, no credential prompts. Near-instant file access compared to ~1s/file over SMB loopback. Files are read in place — no temp copies are made. Auto-detected when the target is `localhost`, `127.0.0.1`, or the machine's own hostname.
 
 **SMB** connects to `\\hostname\C$` using admin share access. Works from any OS (macOS, Linux, Windows). Slower enumeration (each directory is a network round-trip) but universally available if you have admin rights on the target.
 
 **WinRM** executes PowerShell commands on the target machine via PSRP (PowerShell Remoting Protocol). Faster enumeration (runs `Get-ChildItem` remotely) and can read files that are inaccessible via SMB (e.g., OneDrive cloud files). Requires WinRM to be enabled on the target (typically via GPO in domain environments). Files are retrieved via base64 over the WinRM channel. Uses SPNEGO/Negotiate auth (Kerberos) for current-user auth, or NTLM for explicit credentials. Use the target's FQDN (e.g., `WORKSTATION-01.domain.local`) for reliable Kerberos SPN resolution.
 
-**Auto-negotiation** tries WinRM first, falls back to SMB. The transport used is displayed in the CLI output and recorded in the report.
+**Auto-negotiation** for remote targets tries SMB first, falls back to WinRM. For localhost targets, local mode is used automatically. The transport used is displayed in the CLI output and recorded in the report.
 
 **OneDrive considerations:** Files in OneDrive folders that are marked "always available" but not actually hydrated locally will fail to read via SMB (`STATUS_CLOUD_FILE_NOT_IN_SYNC`). This is reported as "Cloud file not synced" in the skip list. WinRM can read these files because PowerShell commands run through the local file system filter driver. If your environment uses OneDrive folder redirection, prefer WinRM or use `--transport winrm` to ensure full coverage.
 

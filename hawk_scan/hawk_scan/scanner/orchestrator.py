@@ -71,7 +71,7 @@ class ScanOrchestrator:
                 skipped.append(SkippedFile(file_path=meta.remote_path, reason=f"Error reading file: {e}"))
             finally:
                 try:
-                    if local_path and os.path.exists(local_path):
+                    if self._transport.copies_files and local_path and os.path.exists(local_path):
                         os.remove(local_path)
                 except OSError:
                     pass

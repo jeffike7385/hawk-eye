@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-Hawk Scan is a standalone Windows CLI tool for remotely scanning domain-joined endpoints for PII, secrets, and classified data via WinRM/SMB. Built for enterprise admins who need to check devices before international travel — no software installed on the target endpoint.
+Hawk Scan is a standalone Windows CLI tool for scanning domain-joined endpoints for PII, secrets, and classified data via WinRM/SMB or local filesystem access. Built for enterprise admins who need to check devices before international travel — no software installed on the target endpoint.
 
 ### Build & Run Commands
 
@@ -28,14 +28,19 @@ cd hawk_scan && .\build.ps1 -SkipSign          # build only
 # Run the CLI (dev mode)
 hawk_scan WORKSTATION-01 --connection connection.yml
 hawk_scan WORKSTATION-01 --transport smb --redact --report-format html
+
+# Local scan (no network transport)
+hawk_scan --local
+hawk_scan localhost
 ```
 
 ### Architecture
 
 Four-layer design with clean separation:
 
-**`hawk_scan/remote/`** — Transport abstraction for remote file access
-- `transport.py` — `Transport` ABC, `Credentials` dataclass, `negotiate_transport()` auto-negotiation (WinRM primary, SMB fallback)
+**`hawk_scan/remote/`** — Transport abstraction for file access
+- `transport.py` — `Transport` ABC with `copies_files` property, `Credentials` dataclass, `negotiate_transport()` auto-negotiation (local for localhost, SMB primary for remote, WinRM fallback)
+- `local_transport.py` — Direct local filesystem access via `os.scandir()` — no network, no temp copies, no credential prompts
 - `winrm_transport.py` — PowerShell remoting via `pypsrp` (PSRP/SPNEGO) for file enumeration (`Get-ChildItem`) and base64 retrieval
 - `smb_transport.py` — Admin share access (`\\host\C$`) via `smbprotocol` for enumeration and file copy
 
@@ -52,7 +57,8 @@ Four-layer design with clean separation:
 
 ### Key Design Decisions
 
-- Transport abstraction is the critical boundary: `orchestrator.py` calls `transport.enumerate()` and `transport.retrieve()` without knowing WinRM vs SMB
+- Transport abstraction is the critical boundary: `orchestrator.py` calls `transport.enumerate()` and `transport.retrieve()` without knowing WinRM vs SMB vs local
+- `Transport.copies_files` property controls whether orchestrator deletes files after scanning (True for SMB/WinRM temp copies, False for local where files are read in place)
 - Fingerprint patterns are YAML dicts with `pattern`, `severity`, `category`, and optional `context_keywords` — not bare regex strings like Hawk Eye
 - Patterns compile once at `ScanEngine.__init__()`, not per-file like Hawk Eye
 - All temp files are cleaned up in `finally` blocks

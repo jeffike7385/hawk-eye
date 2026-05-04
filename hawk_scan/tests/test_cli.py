@@ -2,10 +2,24 @@ import pytest
 from hawk_scan.cli import build_parser
 
 
-def test_parser_requires_target():
+def test_parser_requires_target_or_local():
     parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args([])
+    args = parser.parse_args([])
+    assert args.target is None
+    assert args.local is False
+
+
+def test_parser_local_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--local"])
+    assert args.local is True
+    assert args.target is None
+
+
+def test_parser_local_transport():
+    parser = build_parser()
+    args = parser.parse_args(["WS-01", "--transport", "local"])
+    assert args.transport == "local"
 
 
 def test_parser_accepts_target():

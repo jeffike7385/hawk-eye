@@ -6,7 +6,7 @@ Built for enterprise IT administrators who need to verify endpoints are clean be
 
 ## What It Does
 
-- Connects to a remote Windows machine via SMB admin shares or WinRM (PowerShell remoting)
+- Connects to a remote Windows machine via SMB admin shares or WinRM (PowerShell remoting), or scans the local filesystem directly with `--local`
 - Enumerates and downloads documents (PDF, Word, Excel, PowerPoint, images, text/CSV)
 - Scans file content for PII using threshold-based regex detection:
   - SSNs (flags files with 3+ matches, not one-off numbers)
@@ -26,6 +26,9 @@ cd hawk_scan && pip install -e ".[dev]"
 # Scan a remote machine over SMB
 hawk_scan WORKSTATION-01 --transport smb --username 'DOMAIN\admin'
 
+# Scan the local machine directly (no network overhead)
+hawk_scan --local
+
 # Scan specific directories
 hawk_scan WORKSTATION-01 --transport smb --username 'DOMAIN\admin' \
   --paths 'C:\Users\jsmith\Documents' 'C:\Users\jsmith\Desktop'
@@ -43,7 +46,8 @@ Password is prompted securely — never passed as a CLI argument.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--transport smb\|winrm` | Force transport method | Auto-negotiate |
+| `--local` | Scan local filesystem directly | Off |
+| `--transport smb\|winrm\|local` | Force transport method | Auto-negotiate |
 | `--username DOMAIN\user` | Explicit credentials | Current user (Kerberos) |
 | `--paths PATH [...]` | Remote paths to scan | C:\Users + detected volumes |
 | `--exclude PAT [...]` | Additional exclude patterns | AppData, .git, etc. |
@@ -91,7 +95,7 @@ Hawk Scan can be packaged as a standalone Windows `.exe` via PyInstaller — no 
 
 Four-layer design:
 
-- **remote/** — Transport abstraction (SMB + WinRM), auto-negotiation, credential handling
+- **remote/** — Transport abstraction (SMB + WinRM + local), auto-negotiation, credential handling
 - **scanner/** — Regex engine with thresholds and co-occurrence rules, file readers (PDF, Office, OCR), orchestrator
 - **report/** — HTML/JSON report generation with Jinja2 templates
 - **cli.py** — Ties it all together

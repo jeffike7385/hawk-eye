@@ -24,12 +24,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="hawk_scan",
         description="Remote endpoint PII and secrets scanner for Windows domain environments",
     )
-    parser.add_argument("target", help="Target hostname or IP address")
+    parser.add_argument("target", nargs="?", default=None, help="Target hostname or IP address")
+    parser.add_argument("--local", action="store_true", help="Scan the local filesystem directly (no network transport)")
     parser.add_argument("--paths", nargs="+", help="Remote paths to scan")
     parser.add_argument("--exclude", nargs="+", default=[], help="Exclude patterns")
     parser.add_argument("--username", help="Domain\\username for authentication")
     parser.add_argument("--password", default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--transport", choices=["winrm", "smb"], default=None)
+    parser.add_argument("--transport", choices=["winrm", "smb", "local"], default=None)
     parser.add_argument("--report-format", choices=["html", "json"], default="html")
     parser.add_argument("--output", default=".", help="Output directory")
     parser.add_argument("--config", default=None, help="Path to config.yml")
@@ -48,6 +49,18 @@ def main():
 
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.local:
+        import socket
+        args.transport = "local"
+        if not args.target:
+            args.target = socket.gethostname()
+    elif args.transport == "local":
+        import socket
+        if not args.target:
+            args.target = socket.gethostname()
+    elif not args.target:
+        parser.error("target is required (or use --local for local scans)")
 
     if args.username and not args.password:
         args.password = getpass.getpass(f"Password for {args.username}: ")
