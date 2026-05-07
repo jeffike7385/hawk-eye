@@ -1,5 +1,4 @@
 import os
-import stat
 import fnmatch
 from hawk_scan.models import FileMetadata
 from hawk_scan.remote.transport import Transport
@@ -53,12 +52,9 @@ class LocalTransport(Transport):
                     continue
                 if entry.is_dir(follow_symlinks=False):
                     if entry.name in PROFILE_JUNCTIONS:
+                        if self._debug:
+                            print(f"[DEBUG] Skipping junction: {entry.path}")
                         continue
-                    try:
-                        if entry.stat(follow_symlinks=False).st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
-                            continue
-                    except (AttributeError, OSError):
-                        pass
                     full = entry.path
                     if any(p in full for p in exclude_patterns if not p.startswith("*")):
                         continue
