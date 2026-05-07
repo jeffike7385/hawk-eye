@@ -165,7 +165,7 @@ def main():
     result = ScanResult(
         target_host=args.target, transport_method=transport.name, scan_user=scan_user,
         start_time=start_ts, end_time=end_ts, duration_seconds=duration,
-        total_files_scanned=len(findings) + len(skipped), total_files_skipped=len(skipped),
+        total_files_scanned=len(file_list), total_files_skipped=len(skipped),
         findings=findings, skipped_files=skipped,
     )
     report = ScanReport(result=result)
