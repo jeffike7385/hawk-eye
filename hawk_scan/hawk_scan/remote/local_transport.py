@@ -1,8 +1,15 @@
 import os
+import stat
 import fnmatch
 from hawk_scan.models import FileMetadata
 from hawk_scan.remote.transport import Transport
 from hawk_scan.scanner.readers import SCANNABLE_EXTENSIONS
+
+PROFILE_JUNCTIONS = frozenset({
+    "Application Data", "Cookies", "Local Settings", "My Documents",
+    "NetHood", "PrintHood", "Recent", "SendTo", "Start Menu", "Templates",
+    "My Music", "My Pictures", "My Videos", "Default User",
+})
 
 
 class LocalTransport(Transport):
@@ -45,6 +52,13 @@ class LocalTransport(Transport):
                 if entry.is_symlink():
                     continue
                 if entry.is_dir(follow_symlinks=False):
+                    if entry.name in PROFILE_JUNCTIONS:
+                        continue
+                    try:
+                        if entry.stat(follow_symlinks=False).st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+                            continue
+                    except (AttributeError, OSError):
+                        pass
                     full = entry.path
                     if any(p in full for p in exclude_patterns if not p.startswith("*")):
                         continue
